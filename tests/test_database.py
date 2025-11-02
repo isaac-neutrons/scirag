@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from scirag.service.database import (
     RavenDBConfig,
+    create_database,
     create_document_store,
+    database_exists,
     ensure_index_exists,
 )
 
@@ -120,3 +122,105 @@ class TestEnsureIndexExists:
         # This should not raise any exceptions
         ensure_index_exists(None)  # type: ignore
 
+
+class TestDatabaseExists:
+    """Tests for database_exists function."""
+
+    @patch("scirag.service.database.DocumentStore")
+    def test_database_exists_returns_true(self, mock_document_store_class):
+        """Test that database_exists returns True when database is accessible."""
+        mock_store = MagicMock()
+        mock_session = MagicMock()
+        mock_store.open_session.return_value.__enter__.return_value = mock_session
+        mock_session.query.return_value.take.return_value = []
+        mock_document_store_class.return_value = mock_store
+
+        result = database_exists("http://test:8080", "testdb")
+
+        assert result is True
+        mock_document_store_class.assert_called_once_with("http://test:8080", "testdb")
+        mock_store.initialize.assert_called_once()
+        mock_store.close.assert_called_once()
+
+    @patch("scirag.service.database.DocumentStore")
+    def test_database_exists_returns_false_on_exception(
+        self, mock_document_store_class
+    ):
+        """Test that database_exists returns False when database doesn't exist."""
+        mock_store = MagicMock()
+        mock_store.initialize.side_effect = Exception("Database not found")
+        mock_document_store_class.return_value = mock_store
+
+        result = database_exists("http://test:8080", "testdb")
+
+        assert result is False
+
+    @patch("scirag.service.database.DocumentStore")
+    def test_database_exists_with_defaults(self, mock_document_store_class):
+        """Test that database_exists uses default config when not specified."""
+        mock_store = MagicMock()
+        mock_session = MagicMock()
+        mock_store.open_session.return_value.__enter__.return_value = mock_session
+        mock_session.query.return_value.take.return_value = []
+        mock_document_store_class.return_value = mock_store
+
+        with patch.dict(
+            os.environ,
+            {"RAVENDB_URL": "http://env:8080", "RAVENDB_DATABASE": "envdb"},
+        ):
+            result = database_exists()
+
+            assert result is True
+            mock_document_store_class.assert_called_once_with(
+                "http://env:8080", "envdb"
+            )
+
+
+class TestCreateDatabase:
+    """Tests for create_database function."""
+
+    @patch("requests.put")
+    def test_create_database_success(self, mock_put):
+        """Test that create_database makes correct API call."""
+        mock_response = MagicMock()
+        mock_response.raise_for_status.return_value = None
+        mock_put.return_value = mock_response
+
+        create_database("http://test:8080", "testdb")
+
+        mock_put.assert_called_once_with(
+            "http://test:8080/admin/databases",
+            json={"DatabaseName": "testdb", "Settings": {}, "Disabled": False},
+        )
+        mock_response.raise_for_status.assert_called_once()
+
+    @patch("requests.put")
+    def test_create_database_with_defaults(self, mock_put):
+        """Test that create_database uses default config when not specified."""
+        mock_response = MagicMock()
+        mock_response.raise_for_status.return_value = None
+        mock_put.return_value = mock_response
+
+        with patch.dict(
+            os.environ,
+            {"RAVENDB_URL": "http://env:8080", "RAVENDB_DATABASE": "envdb"},
+        ):
+            create_database()
+
+            mock_put.assert_called_once_with(
+                "http://env:8080/admin/databases",
+                json={"DatabaseName": "envdb", "Settings": {}, "Disabled": False},
+            )
+
+    @patch("requests.put")
+    def test_create_database_raises_on_failure(self, mock_put):
+        """Test that create_database raises exception on API failure."""
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = Exception("API error")
+        mock_put.return_value = mock_response
+
+        try:
+            create_database("http://test:8080", "testdb")
+            assert False, "Expected exception to be raised"
+        except Exception as e:
+            assert str(e) == "API error"

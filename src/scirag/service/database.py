@@ -89,3 +89,64 @@ def ensure_index_exists(store: DocumentStore) -> None:
 
     pass  # Placeholder for now, will be implemented with actual RavenDB API
 
+
+def database_exists(url: str | None = None, database: str | None = None) -> bool:
+    """Check if a database exists in RavenDB.
+
+    Args:
+        url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
+        database: Database name (defaults to value from RavenDBConfig.get_database_name())
+
+    Returns:
+        bool: True if database exists, False otherwise
+
+    Example:
+        >>> if not database_exists():
+        ...     create_database()
+    """
+    if url is None:
+        url = RavenDBConfig.get_url()
+    if database is None:
+        database = RavenDBConfig.get_database_name()
+
+    # Try to create a store and check if we can access the database
+    try:
+        store = DocumentStore(url, database)
+        store.initialize()
+        # Try to access the database by getting stats
+        with store.open_session() as session:
+            # Attempt a simple query to verify database exists
+            list(session.query().take(0))
+        store.close()
+        return True
+    except Exception:
+        # Database doesn't exist or connection failed
+        return False
+
+
+def create_database(url: str | None = None, database: str | None = None) -> None:
+    """Create a new database in RavenDB.
+
+    Args:
+        url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
+        database: Database name (defaults to value from RavenDBConfig.get_database_name())
+
+    Raises:
+        Exception: If database creation fails
+
+    Example:
+        >>> create_database()
+    """
+    import requests
+
+    if url is None:
+        url = RavenDBConfig.get_url()
+    if database is None:
+        database = RavenDBConfig.get_database_name()
+
+    # Use RavenDB HTTP API to create database
+    api_url = f"{url}/admin/databases"
+    payload = {"DatabaseName": database, "Settings": {}, "Disabled": False}
+
+    response = requests.put(api_url, json=payload)
+    response.raise_for_status()

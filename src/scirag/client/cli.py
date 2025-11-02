@@ -4,8 +4,10 @@ import os
 from pathlib import Path
 
 import click
+from pyravendb.custom_exceptions.exceptions import DatabaseDoesNotExistException
 
 from scirag.client.ingest import ingest_pdf, store_chunks
+from scirag.service.database import create_database, database_exists
 
 
 @click.command()
@@ -22,7 +24,14 @@ from scirag.client.ingest import ingest_pdf, store_chunks
         "(default: from OLLAMA_EMBEDDING_MODEL env or 'nomic-embed-text')"
     ),
 )
-def ingest(directory: Path, embedding_model: str | None) -> None:
+@click.option(
+    "--create-database",
+    "create_database_flag",
+    is_flag=True,
+    default=False,
+    help="Create the RavenDB database if it doesn't exist",
+)
+def ingest(directory: Path, embedding_model: str | None, create_database_flag: bool) -> None:
     """Ingest PDF files from DIRECTORY into the SciRAG knowledge base.
 
     Processes all PDF files in the specified directory, extracts text,
@@ -31,7 +40,37 @@ def ingest(directory: Path, embedding_model: str | None) -> None:
     Example:
         scirag-ingest documents/
         scirag-ingest documents/ --embedding-model custom-model
+        scirag-ingest documents/ --create-database
     """
+    # Check if database exists
+    if not database_exists():
+        if create_database_flag:
+            click.echo("Database does not exist. Creating database...")
+            try:
+                create_database()
+                click.echo("✓ Database created successfully!")
+            except Exception as e:
+                click.echo(f"✗ Failed to create database: {e}", err=True)
+                click.echo(
+                    "\nPlease ensure RavenDB is running and accessible.", err=True
+                )
+                raise click.Abort()
+        else:
+            click.echo(
+                "✗ Error: Database does not exist!", err=True
+            )
+            click.echo(
+                "\nPlease run the command with --create-database flag to create it:",
+                err=True,
+            )
+            click.echo(
+                f"  scirag-ingest {directory} --create-database", err=True
+            )
+            click.echo(
+                "\nOr ensure RavenDB is running and the database exists.", err=True
+            )
+            raise click.Abort()
+
     # Get embedding model
     model = embedding_model or os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
 
@@ -59,8 +98,23 @@ def ingest(directory: Path, embedding_model: str | None) -> None:
     if all_chunks:
         click.echo()
         click.echo(f"Storing {len(all_chunks)} chunks in RavenDB...")
-        store_chunks(all_chunks)
-        click.echo("✓ Ingestion complete!")
+        try:
+            store_chunks(all_chunks)
+            click.echo("✓ Ingestion complete!")
+        except DatabaseDoesNotExistException:
+            click.echo(
+                "\n✗ Error: Database does not exist!", err=True
+            )
+            click.echo(
+                "Please run the command with --create-database flag:", err=True
+            )
+            click.echo(
+                f"  scirag-ingest {directory} --create-database", err=True
+            )
+            raise click.Abort()
+        except Exception as e:
+            click.echo(f"\n✗ Error storing chunks: {e}", err=True)
+            raise click.Abort()
     else:
         click.echo("No chunks to store.")
 

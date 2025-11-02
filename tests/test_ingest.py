@@ -18,12 +18,21 @@ class TestDocumentChunk:
 
     def test_document_chunk_creation(self):
         """Test creating a DocumentChunk instance."""
+        metadata = {
+            "file_size": 12345,
+            "modification_date": 1234567890.0,
+            "creation_date": 1234567890.0,
+            "page_count": 5,
+            "ingestion_date": 1234567890.0,
+        }
+
         chunk = DocumentChunk(
             id="test.pdf_chunk_0",
             source_filename="test.pdf",
             chunk_index=0,
             text="Sample text",
             embedding=[0.1, 0.2, 0.3],
+            metadata=metadata,
         )
 
         assert chunk.id == "test.pdf_chunk_0"
@@ -31,6 +40,8 @@ class TestDocumentChunk:
         assert chunk.chunk_index == 0
         assert chunk.text == "Sample text"
         assert chunk.embedding == [0.1, 0.2, 0.3]
+        assert chunk.metadata["file_size"] == 12345
+        assert chunk.metadata["page_count"] == 5
 
 
 class TestExtractTextFromPDF:
@@ -154,18 +165,32 @@ class TestGenerateEmbeddings:
 class TestIngestPDF:
     """Tests for ingest_pdf function."""
 
+    @patch("scirag.client.ingest.fitz.open")
     @patch("scirag.client.ingest.generate_embeddings")
     @patch("scirag.client.ingest.chunk_text")
     @patch("scirag.client.ingest.extract_text_from_pdf")
     def test_ingest_pdf_complete_flow(
-        self, mock_extract, mock_chunk, mock_generate, capsys
+        self, mock_extract, mock_chunk, mock_generate, mock_fitz_open, capsys, tmp_path
     ):
         """Test complete PDF ingestion flow."""
         mock_extract.return_value = "Sample text from PDF"
         mock_chunk.return_value = ["chunk1", "chunk2"]
         mock_generate.return_value = [[0.1, 0.2], [0.3, 0.4]]
 
-        pdf_path = Path("test.pdf")
+        # Mock PDF document
+        mock_doc = MagicMock()
+        mock_doc.__len__.return_value = 5
+        mock_doc.metadata = {
+            "title": "Test Document",
+            "author": "Test Author",
+            "creationDate": "D:20240101120000",
+        }
+        mock_fitz_open.return_value = mock_doc
+
+        # Create a temporary PDF file
+        pdf_path = tmp_path / "test.pdf"
+        pdf_path.write_text("dummy content")
+
         chunks = ingest_pdf(pdf_path, "nomic-embed-text")
 
         assert len(chunks) == 2
@@ -174,16 +199,26 @@ class TestIngestPDF:
         assert chunks[0].chunk_index == 0
         assert chunks[0].text == "chunk1"
         assert chunks[0].embedding == [0.1, 0.2]
+        assert "file_size" in chunks[0].metadata
+        assert "modification_date" in chunks[0].metadata
+        assert "creation_date" in chunks[0].metadata
+        assert chunks[0].metadata["page_count"] == 5
+        assert chunks[0].metadata["title"] == "Test Document"
+        assert chunks[0].metadata["author"] == "Test Author"
 
         assert chunks[1].id == "test.pdf_chunk_1"
         assert chunks[1].chunk_index == 1
         assert chunks[1].text == "chunk2"
         assert chunks[1].embedding == [0.3, 0.4]
+        assert chunks[1].metadata["page_count"] == 5
 
         # Check console output
         captured = capsys.readouterr()
         assert "Processing test.pdf" in captured.out
         assert "✓ Processed test.pdf" in captured.out
+
+        # Verify PDF document was closed
+        mock_doc.close.assert_called_once()
 
 
 class TestStoreChunks:
@@ -198,6 +233,14 @@ class TestStoreChunks:
         mock_store.open_session.return_value.__enter__.return_value = mock_session
         mock_create_store.return_value = mock_store
 
+        metadata = {
+            "file_size": 12345,
+            "modification_date": 1234567890.0,
+            "creation_date": 1234567890.0,
+            "page_count": 5,
+            "ingestion_date": 1234567890.0,
+        }
+
         chunks = [
             DocumentChunk(
                 id="test.pdf_chunk_0",
@@ -205,6 +248,7 @@ class TestStoreChunks:
                 chunk_index=0,
                 text="chunk text",
                 embedding=[0.1, 0.2, 0.3],
+                metadata=metadata,
             )
         ]
 
@@ -219,12 +263,19 @@ class TestStoreChunks:
         mock_session.store.assert_called_once()
         mock_session.save_changes.assert_called_once()
 
-        # Verify stored data structure
+        # Verify the DocumentChunk object was stored directly
         call_args = mock_session.store.call_args
-        stored_dict = call_args[0][0]
-        assert stored_dict["id"] == "test.pdf_chunk_0"
-        assert stored_dict["source_filename"] == "test.pdf"
-        assert stored_dict["chunk_index"] == 0
-        assert stored_dict["text"] == "chunk text"
-        assert stored_dict["embedding"] == [0.1, 0.2, 0.3]
-        assert stored_dict["@metadata"]["@collection"] == "DocumentChunks"
+        stored_chunk = call_args[0][0]
+        stored_id = call_args[0][1]
+
+        # Verify it's the DocumentChunk object
+        assert isinstance(stored_chunk, DocumentChunk)
+        assert stored_chunk.id == "test.pdf_chunk_0"
+        assert stored_chunk.source_filename == "test.pdf"
+        assert stored_chunk.chunk_index == 0
+        assert stored_chunk.text == "chunk text"
+        assert stored_chunk.embedding == [0.1, 0.2, 0.3]
+        assert stored_chunk.metadata["file_size"] == 12345
+        assert stored_chunk.metadata["page_count"] == 5
+        assert stored_id == "test.pdf_chunk_0"
+

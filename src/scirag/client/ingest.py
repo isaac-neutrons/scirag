@@ -20,9 +20,11 @@ class DocumentChunk:
     Attributes:
         id: Unique identifier for the chunk (format: filename_chunk_index)
         source_filename: Original PDF filename
-        chunk_index: Index of this chunk in the document
+        chunk_index: int of this chunk in the document
         text: The text content of the chunk
         embedding: Vector embedding of the text
+        metadata: Dictionary containing file metadata (creation_date, modification_date,
+                 file_size, page_count, ingestion_date)
     """
 
     id: str
@@ -30,6 +32,8 @@ class DocumentChunk:
     chunk_index: int
     text: str
     embedding: list[float]
+    metadata: dict[str, str | int | float]
+
 
 
 def extract_text_from_pdf(pdf_path: Path) -> str:
@@ -131,6 +135,30 @@ def ingest_pdf(pdf_path: Path, embedding_model: str) -> list[DocumentChunk]:
     text = extract_text_from_pdf(pdf_path)
     print(f"  Extracted {len(text)} characters")
 
+    # Extract file metadata
+    file_stat = pdf_path.stat()
+    doc = fitz.open(pdf_path)
+
+    metadata = {
+        "file_size": file_stat.st_size,
+        "modification_date": file_stat.st_mtime,
+        "creation_date": file_stat.st_ctime,
+        "page_count": len(doc),
+        "ingestion_date": file_stat.st_mtime,  # Using mtime as ingestion timestamp
+    }
+
+    # Add PDF metadata if available
+    pdf_metadata = doc.metadata
+    if pdf_metadata:
+        if pdf_metadata.get("title"):
+            metadata["title"] = pdf_metadata["title"]
+        if pdf_metadata.get("author"):
+            metadata["author"] = pdf_metadata["author"]
+        if pdf_metadata.get("creationDate"):
+            metadata["pdf_creation_date"] = pdf_metadata["creationDate"]
+
+    doc.close()
+
     # Chunk text
     text_chunks = chunk_text(text)
     print(f"  Created {len(text_chunks)} chunks")
@@ -150,6 +178,7 @@ def ingest_pdf(pdf_path: Path, embedding_model: str) -> list[DocumentChunk]:
             chunk_index=idx,
             text=text_content,
             embedding=embedding,
+            metadata=metadata.copy(),
         )
         document_chunks.append(doc_chunk)
 
@@ -159,6 +188,9 @@ def ingest_pdf(pdf_path: Path, embedding_model: str) -> list[DocumentChunk]:
 
 def store_chunks(chunks: list[DocumentChunk]) -> None:
     """Store document chunks in RavenDB.
+
+    The DocumentChunk dataclass objects are stored directly in RavenDB,
+    which will automatically serialize them to JSON.
 
     Args:
         chunks: List of DocumentChunk objects to store
@@ -174,16 +206,8 @@ def store_chunks(chunks: list[DocumentChunk]) -> None:
     # Store chunks in a single session
     with store.open_session() as session:
         for chunk in chunks:
-            # Convert dataclass to dict for storage
-            chunk_dict = {
-                "id": chunk.id,
-                "source_filename": chunk.source_filename,
-                "chunk_index": chunk.chunk_index,
-                "text": chunk.text,
-                "embedding": chunk.embedding,
-                "@metadata": {"@collection": "DocumentChunks"},
-            }
-            session.store(chunk_dict, chunk.id)
+            # Store the DocumentChunk object directly
+            session.store(chunk, chunk.id)
 
         session.save_changes()
 

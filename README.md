@@ -5,7 +5,6 @@ An agentic Retrieval-Augmented Generation (RAG) application designed for process
 [![Tests](https://img.shields.io/badge/tests-74%20passing-brightgreen)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-98%25-brightgreen)](htmlcov/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ## Overview
 
@@ -15,18 +14,6 @@ SciRAG enables researchers to:
 - 🤖 **Receive** AI-generated responses grounded in document content
 - � **Interact** via beautiful web-based chat interface
 - �🔌 **Integrate** via REST API or Model Context Protocol (MCP) server
-
-## Features
-
-- ✅ **74 Tests** with 98% code coverage
-- ✅ **Interactive Web UI** with modern chat interface
-- ✅ **PDF Processing** with metadata extraction (dates, page count)
-- ✅ **Vector Search** using RavenDB for semantic similarity
-- ✅ **Configurable Chunking** with overlap for context preservation
-- ✅ **LLM Abstraction** supporting multiple providers (Ollama)
-- ✅ **REST API** with comprehensive error handling
-- ✅ **MCP Server** for distributed retrieval operations
-- ✅ **CLI Tool** with database management features
 
 ## Architecture
 
@@ -150,7 +137,7 @@ Edit `.env` with your settings:
 ```env
 # Ollama Configuration
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama3
+OLLAMA_MODEL=llama3.3
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 
 # MCP Server Configuration

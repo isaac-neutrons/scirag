@@ -1,5 +1,6 @@
 """LLM service abstraction layer for scirag."""
 
+import logging
 import os
 from typing import Protocol
 
@@ -8,6 +9,14 @@ from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+# Configure logging
+log_level = os.getenv("LOG_LEVEL", "DEBUG")
+logging.basicConfig(
+    level=getattr(logging, log_level),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 class LLMService(Protocol):
@@ -48,8 +57,10 @@ class OllamaService:
         """
         self.host = host
         self.model = model
+        logger.info(f"🤖 Initializing OllamaService: host={host}, model={model}")
         # Configure the Ollama client with the specified host
         self.client = ollama.Client(host=host)
+        logger.debug("✅ Ollama client configured")
 
     async def generate_response(self, messages: list[dict]) -> str:
         """Generate a response using Ollama.
@@ -65,13 +76,28 @@ class OllamaService:
             >>> messages = [{"role": "user", "content": "Hello!"}]
             >>> response = await service.generate_response(messages)
         """
+        logger.info(f"🗣️  Generating response with {self.model}")
+        logger.debug(f"Messages: {len(messages)} messages")
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "unknown")
+            content_preview = msg.get("content", "")[:100]
+            logger.debug(f"  Message {i+1} ({role}): {content_preview}...")
+
         # Use the synchronous chat method from ollama
         # In a real async context, you might want to use asyncio.to_thread
         # to avoid blocking the event loop
-        response = self.client.chat(model=self.model, messages=messages)
+        try:
+            logger.debug(f"Calling Ollama API at {self.host}...")
+            response = self.client.chat(model=self.model, messages=messages)
+            logger.debug("✅ Ollama API call successful")
 
-        # Extract the message content from the response
-        return response["message"]["content"]
+            # Extract the message content from the response
+            content = response["message"]["content"]
+            logger.info(f"✅ Response generated: {len(content)} characters")
+            return content
+        except Exception as e:
+            logger.error(f"❌ Ollama API error: {e}", exc_info=True)
+            raise
 
 
 def get_llm_service(config: dict | None = None) -> LLMService:

@@ -3,9 +3,8 @@
 from unittest.mock import patch
 
 from click.testing import CliRunner
-from pyravendb.custom_exceptions.exceptions import DatabaseDoesNotExistException
 
-from scirag.client.cli import ingest
+from scirag.client.cli import count, ingest, search
 from scirag.client.ingest import DocumentChunk
 
 
@@ -322,10 +321,211 @@ class TestIngestCLI:
             )
         ]
         mock_ingest.return_value = mock_chunks
-        mock_store.side_effect = DatabaseDoesNotExistException("Database scirag does not exists")
+        # Simulate database error with message matching what the CLI checks for
+        mock_store.side_effect = Exception("Database does not exist")
 
         result = self.runner.invoke(ingest, [str(tmp_path)])
 
         assert result.exit_code != 0
         assert "Database does not exist" in result.output
         assert "--create-database" in result.output
+
+
+class TestCountCLI:
+    """Tests for the count CLI command."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.runner = CliRunner()
+
+    @patch("scirag.client.cli.count_documents")
+    @patch("scirag.client.cli.database_exists")
+    def test_count_success(self, mock_db_exists, mock_count):
+        """Test count command successfully returns document count."""
+        mock_db_exists.return_value = True
+        mock_count.return_value = 42
+
+        result = self.runner.invoke(count)
+
+        assert result.exit_code == 0
+        assert "42 document chunk(s)" in result.output
+        mock_count.assert_called_once()
+
+    @patch("scirag.client.cli.count_documents")
+    @patch("scirag.client.cli.database_exists")
+    def test_count_zero_documents(self, mock_db_exists, mock_count):
+        """Test count command when database is empty."""
+        mock_db_exists.return_value = True
+        mock_count.return_value = 0
+
+        result = self.runner.invoke(count)
+
+        assert result.exit_code == 0
+        assert "0 document chunk(s)" in result.output
+
+    @patch("scirag.client.cli.database_exists")
+    def test_count_database_not_exists(self, mock_db_exists):
+        """Test count command when database doesn't exist."""
+        mock_db_exists.return_value = False
+
+        result = self.runner.invoke(count)
+
+        assert result.exit_code != 0
+        assert "Database does not exist" in result.output
+        assert "scirag-ingest" in result.output
+        assert "--create-database" in result.output
+
+    @patch("scirag.client.cli.count_documents")
+    @patch("scirag.client.cli.database_exists")
+    def test_count_database_error(self, mock_db_exists, mock_count):
+        """Test count command when database query fails."""
+        mock_db_exists.return_value = True
+        mock_count.side_effect = Exception("Connection failed")
+
+        result = self.runner.invoke(count)
+
+        assert result.exit_code != 0
+        assert "Error counting documents" in result.output
+        assert "Connection failed" in result.output
+        assert "RavenDB is running" in result.output
+
+
+class TestSearchCLI:
+    """Tests for the search CLI command."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.runner = CliRunner()
+
+    @patch("scirag.client.cli.search_documents")
+    @patch("scirag.client.cli.database_exists")
+    def test_search_success(self, mock_db_exists, mock_search):
+        """Test search command successfully returns results."""
+        mock_db_exists.return_value = True
+        mock_search.return_value = [
+            {
+                "source": "doc1.pdf",
+                "content": "This is relevant content about quantum mechanics",
+                "chunk_index": 0,
+                "score": 0.95,
+            },
+            {
+                "source": "doc2.pdf",
+                "content": "Another relevant section discussing quantum theory",
+                "chunk_index": 2,
+                "score": 0.87,
+            },
+        ]
+
+        result = self.runner.invoke(search, ["quantum mechanics"])
+
+        assert result.exit_code == 0
+        assert "Searching for: 'quantum mechanics'" in result.output
+        assert "Found 2 result(s)" in result.output
+        assert "doc1.pdf" in result.output
+        assert "doc2.pdf" in result.output
+        assert "0.9500" in result.output
+        assert "0.8700" in result.output
+        mock_search.assert_called_once()
+
+    @patch("scirag.client.cli.search_documents")
+    @patch("scirag.client.cli.database_exists")
+    def test_search_with_custom_top_k(self, mock_db_exists, mock_search):
+        """Test search command with custom top-k parameter."""
+        mock_db_exists.return_value = True
+        mock_search.return_value = []
+
+        result = self.runner.invoke(search, ["test query", "--top-k", "3"])
+
+        assert result.exit_code == 0
+        assert "top 3 results" in result.output
+        # Verify top_k parameter was passed
+        call_args = mock_search.call_args
+        assert call_args[1]["top_k"] == 3
+
+    @patch("scirag.client.cli.search_documents")
+    @patch("scirag.client.cli.database_exists")
+    def test_search_with_custom_model(self, mock_db_exists, mock_search):
+        """Test search command with custom embedding model."""
+        mock_db_exists.return_value = True
+        mock_search.return_value = []
+
+        result = self.runner.invoke(
+            search, ["test query", "--embedding-model", "custom-model"]
+        )
+
+        assert result.exit_code == 0
+        # Verify embedding_model parameter was passed
+        call_args = mock_search.call_args
+        assert call_args[1]["embedding_model"] == "custom-model"
+
+    @patch("scirag.client.cli.search_documents")
+    @patch("scirag.client.cli.database_exists")
+    def test_search_no_results(self, mock_db_exists, mock_search):
+        """Test search command when no results found."""
+        mock_db_exists.return_value = True
+        mock_search.return_value = []
+
+        result = self.runner.invoke(search, ["nonexistent query"])
+
+        assert result.exit_code == 0
+        assert "No results found" in result.output
+
+    @patch("scirag.client.cli.database_exists")
+    def test_search_database_not_exists(self, mock_db_exists):
+        """Test search command when database doesn't exist."""
+        mock_db_exists.return_value = False
+
+        result = self.runner.invoke(search, ["test query"])
+
+        assert result.exit_code != 0
+        assert "Database does not exist" in result.output
+        assert "scirag-ingest" in result.output
+
+    @patch("scirag.client.cli.search_documents")
+    @patch("scirag.client.cli.database_exists")
+    def test_search_connection_error(self, mock_db_exists, mock_search):
+        """Test search command when connection fails."""
+        mock_db_exists.return_value = True
+        mock_search.side_effect = ConnectionError("Cannot connect to Ollama")
+
+        result = self.runner.invoke(search, ["test query"])
+
+        assert result.exit_code != 0
+        assert "Connection error" in result.output
+        assert "Cannot connect to Ollama" in result.output
+
+    @patch("scirag.client.cli.search_documents")
+    @patch("scirag.client.cli.database_exists")
+    def test_search_value_error(self, mock_db_exists, mock_search):
+        """Test search command when value error occurs."""
+        mock_db_exists.return_value = True
+        mock_search.side_effect = ValueError("Invalid model")
+
+        result = self.runner.invoke(search, ["test query"])
+
+        assert result.exit_code != 0
+        assert "Error:" in result.output
+        assert "Invalid model" in result.output
+
+    @patch("scirag.client.cli.search_documents")
+    @patch("scirag.client.cli.database_exists")
+    def test_search_truncates_long_content(self, mock_db_exists, mock_search):
+        """Test that search command truncates long content for display."""
+        mock_db_exists.return_value = True
+        long_content = "a" * 300  # Content longer than 200 chars
+        mock_search.return_value = [
+            {
+                "source": "doc1.pdf",
+                "content": long_content,
+                "chunk_index": 0,
+                "score": 0.95,
+            }
+        ]
+
+        result = self.runner.invoke(search, ["test query"])
+
+        assert result.exit_code == 0
+        assert "..." in result.output  # Should have ellipsis for truncated content
+        # Should not contain the full 300 characters
+        assert long_content not in result.output

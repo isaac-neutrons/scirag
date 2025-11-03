@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "pyravendb>=5.0.0",
+    "ravendb>=7.1.2",
     "fastmcp>=0.1.0",
     "flask>=3.0.0",
     "PyMuPDF>=1.23.0",
@@ -42,6 +42,9 @@ dev = [
 
 [project.scripts]
 scirag-ingest = "scirag.client.cli:ingest"
+scirag-count = "scirag.client.cli:count"
+scirag-search = "scirag.client.cli:search"
+scirag-delete-db = "scirag.client.cli:delete_db"
 scirag-mcp-server = "scirag.service.mcp_server:main"
 scirag-app = "scirag.client.app:main"
 

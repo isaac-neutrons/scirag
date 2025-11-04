@@ -27,39 +27,6 @@ graph TD
   style M fill:#ffb,stroke:#333,stroke-width:2px
 ```
 
-### Components
-
-1. **Ingestion Pipeline** (`ingest.py`): 
-   - PDF text extraction with PyMuPDF
-   - Configurable text chunking with overlap
-   - Batch embedding generation via Ollama
-   - Metadata extraction (file dates, page count)
-   - RavenDB storage with vector embeddings
-
-2. **CLI** (`cli.py`): 
-   - Click-based command-line interface
-   - Document ingestion with progress tracking
-   - Database management (creation, checking)
-   - Configurable embedding model
-
-3. **MCP Server** (`mcp_server.py`): 
-   - FastMCP server for distributed architectures
-   - Vector search tool with customizable `top_k`
-   - Standalone or integrated operation modes
-
-4. **Flask Web App** (`app.py`): 
-   - REST API with `/api/chat` endpoint
-   - RAG pipeline: Retrieve → Augment → Generate
-   - Health check endpoint
-
-5. **Database Layer** (`database.py`): 
-   - RavenDB connection management
-   - Database existence checking and creation
-
-6. **LLM Services** (`llm_services.py`): 
-   - Protocol-based abstraction layer
-   - Ollama service implementation
-
 ## Prerequisites
 
 - Python 3.10 or higher

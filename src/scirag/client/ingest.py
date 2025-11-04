@@ -1,5 +1,6 @@
 """PDF ingestion pipeline for extracting, chunking, and storing documents."""
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from scirag.service.database import create_document_store, ensure_index_exists
 
 # Load environment variables
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
 
 
 @dataclass
@@ -116,11 +118,11 @@ def ingest_pdf(pdf_path: Path, embedding_model: str) -> list[DocumentChunk]:
     Returns:
         list[DocumentChunk]: List of document chunks with embeddings
     """
-    print(f"Processing {pdf_path.name}...")
+    logging.info(f"Processing {pdf_path.name}...")
 
     # Extract text
     text = extract_text_from_pdf(pdf_path)
-    print(f"  Extracted {len(text)} characters")
+    logging.info(f"  Extracted {len(text)} characters")
 
     # Extract file metadata
     file_stat = pdf_path.stat()
@@ -148,10 +150,10 @@ def ingest_pdf(pdf_path: Path, embedding_model: str) -> list[DocumentChunk]:
 
     # Chunk text
     text_chunks = chunk_text(text)
-    print(f"  Created {len(text_chunks)} chunks")
+    logging.info(f"  Created {len(text_chunks)} chunks")
 
     # Generate embeddings
-    print("  Generating embeddings...")
+    logging.info("  Generating embeddings...")
     embeddings = generate_embeddings(text_chunks, embedding_model)
 
     # Create DocumentChunk objects
@@ -169,7 +171,7 @@ def ingest_pdf(pdf_path: Path, embedding_model: str) -> list[DocumentChunk]:
         )
         document_chunks.append(doc_chunk)
 
-    print(f"  ✓ Processed {filename}")
+    logging.info(f"  ✓ Processed {filename}")
     return document_chunks
 
 

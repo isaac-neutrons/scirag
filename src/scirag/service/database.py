@@ -42,13 +42,6 @@ def create_document_store(url: str | None = None, database: str | None = None) -
 
     Returns:
         DocumentStore: Initialized DocumentStore instance
-
-    Example:
-        >>> store = create_document_store()
-        >>> with store.open_session() as session:
-        ...     # Use session for database operations
-        ...     pass
-        >>> store.close()
     """
     if url is None:
         url = RavenDBConfig.get_url()
@@ -74,14 +67,6 @@ def ensure_index_exists(store: DocumentStore) -> None:
 
     Args:
         store: Initialized DocumentStore instance
-
-    Raises:
-        Exception: If index creation fails
-
-    Example:
-        >>> store = create_document_store()
-        >>> ensure_index_exists(store)
-        >>> store.close()
     """
     from ravendb.documents.indexes.definitions import IndexDefinition, IndexFieldOptions
     from ravendb.documents.indexes.vector.options import VectorOptions
@@ -91,9 +76,7 @@ def ensure_index_exists(store: DocumentStore) -> None:
 
     try:
         # Check if index already exists
-        existing_indexes = store.maintenance.send(
-            GetIndexNamesOperation(0, 100)
-        )
+        existing_indexes = store.maintenance.send(GetIndexNamesOperation(0, 100))
         if index_name in existing_indexes:
             return  # Index already exists
     except Exception:
@@ -103,7 +86,7 @@ def ensure_index_exists(store: DocumentStore) -> None:
     # Create index definition with vector search support
     index_definition = IndexDefinition()
     index_definition.name = index_name
-    
+
     # Use CreateField to explicitly create the vector field in the map
     # This tells RavenDB this is a vector field for KNN search
     index_definition.maps = {
@@ -123,9 +106,7 @@ def ensure_index_exists(store: DocumentStore) -> None:
 
     index_definition.fields = {
         "embedding": IndexFieldOptions(
-            storage=FieldStorage.YES,
-            indexing=FieldIndexing.NO,
-            vector=vector_options
+            storage=FieldStorage.YES, indexing=FieldIndexing.NO, vector=vector_options
         )
     }
 
@@ -144,10 +125,6 @@ def database_exists(url: str | None = None, database: str | None = None) -> bool
 
     Returns:
         bool: True if database exists, False otherwise
-
-    Example:
-        >>> if not database_exists():
-        ...     create_database()
     """
     if url is None:
         url = RavenDBConfig.get_url()
@@ -175,12 +152,6 @@ def create_database(url: str | None = None, database: str | None = None) -> None
     Args:
         url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
         database: Database name (defaults to value from RavenDBConfig.get_database_name())
-
-    Raises:
-        Exception: If database creation fails
-
-    Example:
-        >>> create_database()
     """
     import requests
 
@@ -205,12 +176,6 @@ def delete_database(url: str | None = None, database: str | None = None) -> None
     Args:
         url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
         database: Database name (defaults to value from RavenDBConfig.get_database_name())
-
-    Raises:
-        Exception: If database deletion fails
-
-    Example:
-        >>> delete_database()
     """
     from ravendb.serverwide.operations.common import DeleteDatabaseOperation
 
@@ -238,13 +203,6 @@ def count_documents(url: str | None = None, database: str | None = None) -> int:
 
     Returns:
         int: Number of DocumentChunk documents in the database
-
-    Raises:
-        Exception: If database connection fails or query fails
-
-    Example:
-        >>> count = count_documents()
-        >>> print(f"Database contains {count} document chunks")
     """
     if url is None:
         url = RavenDBConfig.get_url()
@@ -290,15 +248,6 @@ def search_documents(
             - chunk_index: Index of the chunk in the source document
             - score: Similarity score (0.0 if not available from RavenDB)
             - metadata: Dict containing document metadata (file_size, creation_date, etc.)
-
-    Raises:
-        ConnectionError: If cannot connect to Ollama or RavenDB
-        ValueError: If invalid response from Ollama
-
-    Example:
-        >>> results = search_documents("quantum mechanics", top_k=3)
-        >>> for result in results:
-        ...     print(f"{result['source']}: {result['content'][:50]}...")
     """
     # Get defaults
     if embedding_model is None:
@@ -350,70 +299,5 @@ def search_documents(
 
         return formatted_results
 
-    finally:
-        store.close()
-
-
-def get_sources(
-    url: str | None = None,
-    database: str | None = None,
-) -> list[dict[str, Any]]:
-    """Get list of unique document sources with their metadata.
-
-    Args:
-        url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
-        database: Database name (defaults to value from RavenDBConfig.get_database_name())
-
-    Returns:
-        list[dict]: List of unique sources, each containing:
-            - source: Source filename
-            - metadata: Dict containing document metadata (file_size, creation_date, etc.)
-            - chunk_count: Number of chunks for this source
-
-    Raises:
-        ConnectionError: If cannot connect to RavenDB
-
-    Example:
-        >>> sources = get_sources()
-        >>> for source in sources:
-        ...     print(f"{source['source']}: {source['chunk_count']} chunks")
-    """
-    # Get defaults
-    if url is None:
-        url = RavenDBConfig.get_url()
-    if database is None:
-        database = RavenDBConfig.get_database_name()
-
-    store = create_document_store(url, database)
-
-    try:
-        with store.open_session() as session:
-            # Query all documents to get unique sources
-            # We'll group by source_filename in Python since RavenDB queries are limited
-            all_chunks = list(
-                session.query_collection("DocumentChunks", object_type=dict)
-            )
-
-        # Group by source and collect metadata
-        sources_dict = {}
-        for chunk in all_chunks:
-            source = chunk.get("source_filename", "Unknown")
-            if source not in sources_dict:
-                sources_dict[source] = {
-                    "source": source,
-                    "metadata": chunk.get("metadata", {}),
-                    "chunk_count": 0
-                }
-            sources_dict[source]["chunk_count"] += 1
-
-        # Convert to list and sort by source filename
-        sources_list = sorted(sources_dict.values(), key=lambda x: x["source"])
-
-        return sources_list
-
-    except Exception as e:
-        ravendb_url = url
-        error_msg = f"Error fetching sources from RavenDB at {ravendb_url}: {e}"
-        raise ConnectionError(error_msg) from e
     finally:
         store.close()

@@ -480,69 +480,6 @@ curl -X POST http://localhost:5000/api/chat \
   -d '{"query": "What are the main findings about X?"}'
 ```
 
-## Development
-
-### Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src --cov-report=html
-
-# Run specific test file
-pytest tests/test_ingest.py -v
-
-# Run specific test
-pytest tests/test_ingest.py::TestDocumentChunk::test_document_chunk_creation -v
-```
-
-### Code Quality
-
-```bash
-# Run linter
-ruff check src/ tests/
-
-# Run type checker  
-mypy src/
-
-# Format code
-black src/ tests/
-```
-
-### Project Structure
-
-```
-scirag/
-├── src/scirag/
-│   ├── __init__.py
-│   ├── client/              # Client-facing components
-│   │   ├── __init__.py
-│   │   ├── cli.py          # Click CLI interface
-│   │   ├── ingest.py       # PDF ingestion pipeline
-│   │   └── app.py          # Flask web application
-│   └── service/            # Backend services
-│       ├── __init__.py
-│       ├── database.py     # RavenDB integration
-│       ├── llm_services.py # LLM abstraction
-│       └── mcp_server.py   # FastMCP server
-├── tests/                  # Test suite
-│   ├── test_cli.py
-│   ├── test_database.py
-│   ├── test_ingest.py
-│   ├── test_llm_services.py
-│   └── test_structure.py
-├── documents/              # PDF storage (gitignored)
-├── docs/
-│   ├── developer_notes.md  # Detailed implementation notes
-│   └── project.md          # Project specification
-├── pyproject.toml         # Package configuration
-├── requirements.txt       # Dependencies
-├── .env.example          # Environment template
-└── README.md             # This file
-```
-
 ## CLI Commands
 
 After installation with `pip install -e .`, the following commands are available:
@@ -846,9 +783,6 @@ pytest --cov=src --cov-report=html --cov-report=term
 
 # Run specific test file
 pytest tests/test_app.py -v
-
-# Run specific test
-pytest tests/test_app.py::TestChatEndpoint::test_chat_success -v
 
 # View coverage report
 open htmlcov/index.html  # On Mac

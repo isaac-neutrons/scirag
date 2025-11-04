@@ -7,7 +7,7 @@ from typing import Any
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-from scirag.service.database import get_sources, search_documents
+from scirag.service.database import search_documents
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "DEBUG")
@@ -25,49 +25,6 @@ logger.debug("Environment variables loaded for MCP server")
 mcp = FastMCP("SciRAG Document Retrieval")
 
 
-async def retrieve_document_chunks_impl(query: str, top_k: int = 5) -> list[dict[str, Any]]:
-    """Implementation of document chunk retrieval with vector search.
-
-    This function performs semantic search over ingested document chunks using
-    vector embeddings and RavenDB's vector search functionality.
-
-    Args:
-        query: The search query text
-        top_k: Number of top results to return (default: 5)
-
-    Returns:
-        list[dict]: List of relevant chunks, each containing:
-            - source: Original document filename
-            - content: Text content of the chunk
-            - chunk_index: Position of chunk in document
-            - score: Similarity score (0.0 if not available)
-            - metadata: Dict containing document metadata
-
-    Example:
-        >>> results = await retrieve_document_chunks_impl("quantum entanglement", top_k=3)
-        >>> for result in results:
-        ...     print(f"Source: {result['source']}")
-        ...     print(f"Content: {result['content'][:100]}...")
-    """
-    logger.info(f"🔍 MCP: Retrieving document chunks for query: '{query[:100]}...'")
-    logger.debug(f"MCP: top_k={top_k}")
-
-    try:
-        logger.info("📊 MCP: Calling search_documents from database module...")
-        results = search_documents(query=query, top_k=top_k)
-        logger.info(f"✅ MCP: Retrieved {len(results)} results from vector search")
-        return results
-    except ConnectionError as e:
-        logger.error(f"❌ MCP: Connection error: {e}", exc_info=True)
-        raise
-    except ValueError as e:
-        logger.error(f"❌ MCP: Value error: {e}", exc_info=True)
-        raise
-    except Exception as e:
-        logger.error(f"❌ MCP: Unexpected error during search: {e}", exc_info=True)
-        raise
-
-
 @mcp.tool()
 async def retrieve_document_chunks(query: str, top_k: int = 5) -> list[dict[str, Any]]:
     """
@@ -79,12 +36,8 @@ async def retrieve_document_chunks(query: str, top_k: int = 5) -> list[dict[str,
     logger.debug(f"MCP Tool: Parameters - query='{query[:100]}...', top_k={top_k}")
 
     try:
-        logger.debug("MCP Tool: Calling retrieve_document_chunks_impl...")
-        results = await retrieve_document_chunks_impl(query, top_k)
-        logger.info(
-            f"✅ MCP Tool: Returning {len(results)} "
-            "formatted results to MCP client"
-        )
+        results = search_documents(query=query, top_k=top_k)
+        logger.info(f"✅ MCP Tool: Returning {len(results)} formatted results to MCP client")
         return results
     except ConnectionError as e:
         error_msg = f"Connection error: {e} - Check if Ollama and RavenDB are running"
@@ -92,30 +45,6 @@ async def retrieve_document_chunks(query: str, top_k: int = 5) -> list[dict[str,
         raise ValueError(error_msg) from e
     except AttributeError as e:
         error_msg = f"Attribute error: {e} - This may indicate a version mismatch"
-        logger.error(f"❌ MCP Tool: {error_msg}", exc_info=True)
-        raise ValueError(error_msg) from e
-    except Exception as e:
-        error_msg = f"Unexpected error: {type(e).__name__}: {e}"
-        logger.error(f"❌ MCP Tool: {error_msg}", exc_info=True)
-        raise ValueError(error_msg) from e
-
-
-@mcp.tool()
-async def list_document_sources() -> list[dict[str, Any]]:
-    """
-    Lists all unique document sources in the knowledge base with their metadata.
-    Returns information about each document including filename, metadata, and chunk count.
-    Use this tool to see what documents are available in the system.
-    """
-    logger.info("🔌 MCP Tool: list_document_sources called via MCP protocol")
-
-    try:
-        logger.debug("MCP Tool: Calling get_sources from database...")
-        sources = get_sources()
-        logger.info(f"✅ MCP Tool: Returning {len(sources)} sources to MCP client")
-        return sources
-    except ConnectionError as e:
-        error_msg = f"Connection error: {e} - Check if RavenDB is running"
         logger.error(f"❌ MCP Tool: {error_msg}", exc_info=True)
         raise ValueError(error_msg) from e
     except Exception as e:

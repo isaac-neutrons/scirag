@@ -3,6 +3,8 @@
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from scirag.service.database import (
     RavenDBConfig,
     count_documents,
@@ -59,9 +61,9 @@ class TestCreateDocumentStore:
         ):
             store = create_document_store()
 
-            # Verify DocumentStore was created with correct parameters
+            # Verify DocumentStore was created with correct parameters (list format)
             mock_document_store_class.assert_called_once_with(
-                "http://test:8080", "testdb"
+                ["http://test:8080"], "testdb"
             )
 
             # Verify initialize was called
@@ -80,9 +82,9 @@ class TestCreateDocumentStore:
             url="http://custom:9090", database="custom_db"
         )
 
-        # Verify DocumentStore was created with custom parameters
+        # Verify DocumentStore was created with custom parameters (list format)
         mock_document_store_class.assert_called_once_with(
-            "http://custom:9090", "custom_db"
+            ["http://custom:9090"], "custom_db"
         )
 
         # Verify initialize was called
@@ -120,9 +122,10 @@ class TestEnsureIndexExists:
         ensure_index_exists(mock_store)
 
     def test_ensure_index_exists_with_none(self):
-        """Test that ensure_index_exists handles None gracefully."""
-        # This should not raise any exceptions
-        ensure_index_exists(None)  # type: ignore
+        """Test that ensure_index_exists handles None by raising AttributeError."""
+        # This should raise AttributeError when None is passed
+        with pytest.raises(AttributeError):
+            ensure_index_exists(None)  # type: ignore
 
 
 class TestDatabaseExists:
@@ -140,7 +143,7 @@ class TestDatabaseExists:
         result = database_exists("http://test:8080", "testdb")
 
         assert result is True
-        mock_document_store_class.assert_called_once_with("http://test:8080", "testdb")
+        mock_document_store_class.assert_called_once_with(["http://test:8080"], "testdb")
         mock_store.initialize.assert_called_once()
         mock_store.close.assert_called_once()
 
@@ -174,7 +177,7 @@ class TestDatabaseExists:
 
             assert result is True
             mock_document_store_class.assert_called_once_with(
-                "http://env:8080", "envdb"
+                ["http://env:8080"], "envdb"
             )
 
 
@@ -241,20 +244,23 @@ class TestCountDocuments:
         mock_session = MagicMock()
         mock_store.open_session.return_value.__enter__.return_value = mock_session
 
-        # Create a mock query chain
-        mock_query = MagicMock()
-        mock_session.query.return_value = mock_query
-        mock_query.raw_query.return_value = [{"id": "1"}, {"id": "2"}, {"id": "3"}] * 14  # 42 items
+        # Mock the raw_query return value (42 items)
+        mock_session.advanced.raw_query.return_value = [
+            {"id": "1"}, {"id": "2"}, {"id": "3"}
+        ] * 14
 
         # Call the function
         count = count_documents("http://test:8080", "testdb")
 
         # Verify
         assert count == 42
-        mock_document_store_class.assert_called_once_with("http://test:8080", "testdb")
+        mock_document_store_class.assert_called_once_with(
+            ["http://test:8080"], "testdb"
+        )
         mock_store.initialize.assert_called_once()
-        mock_session.query.assert_called_once()
-        mock_query.raw_query.assert_called_once_with("from DocumentChunks")
+        mock_session.advanced.raw_query.assert_called_once_with(
+            "from DocumentChunks", object_type=dict
+        )
         mock_store.close.assert_called_once()
 
     @patch("scirag.service.database.DocumentStore")
@@ -267,9 +273,7 @@ class TestCountDocuments:
         mock_session = MagicMock()
         mock_store.open_session.return_value.__enter__.return_value = mock_session
 
-        mock_query = MagicMock()
-        mock_session.query.return_value = mock_query
-        mock_query.raw_query.return_value = [{"id": str(i)} for i in range(10)]
+        mock_session.advanced.raw_query.return_value = [{"id": str(i)} for i in range(10)]
 
         # Call with defaults
         with patch.dict(
@@ -279,7 +283,7 @@ class TestCountDocuments:
             count = count_documents()
 
             # Verify defaults were used
-            mock_document_store_class.assert_called_once_with("http://env:8080", "envdb")
+            mock_document_store_class.assert_called_once_with(["http://env:8080"], "envdb")
             assert count == 10
 
     @patch("scirag.service.database.DocumentStore")
@@ -294,9 +298,7 @@ class TestCountDocuments:
         mock_session = MagicMock()
         mock_store.open_session.return_value.__enter__.return_value = mock_session
 
-        mock_query = MagicMock()
-        mock_session.query.return_value = mock_query
-        mock_query.raw_query.return_value = []
+        mock_session.advanced.raw_query.return_value = []
 
         # Call the function
         count = count_documents("http://test:8080", "testdb")
@@ -315,17 +317,16 @@ class TestCountDocuments:
         mock_session = MagicMock()
         mock_store.open_session.return_value.__enter__.return_value = mock_session
 
-        # Make query raise an exception
-        mock_session.query.side_effect = Exception("Query failed")
+        # Make raw_query raise an exception
+        mock_session.advanced.raw_query.side_effect = Exception("Query failed")
 
         # Call the function and expect exception
-        try:
+        with pytest.raises(Exception) as exc_info:
             count_documents("http://test:8080", "testdb")
-            assert False, "Expected exception to be raised"
-        except Exception as e:
-            assert str(e) == "Query failed"
-            # Verify store was closed despite error
-            mock_store.close.assert_called_once()
+
+        assert str(exc_info.value) == "Query failed"
+        # Verify store was closed despite error
+        mock_store.close.assert_called_once()
 
 
 class TestSearchDocuments:
@@ -348,9 +349,7 @@ class TestSearchDocuments:
         mock_store.open_session.return_value.__enter__.return_value = mock_session
 
         # Mock query results
-        mock_query = MagicMock()
-        mock_session.query.return_value = mock_query
-        mock_query.raw_query.return_value = [
+        mock_results = [
             {
                 "source_filename": "doc1.pdf",
                 "text": "This is test content",
@@ -364,6 +363,11 @@ class TestSearchDocuments:
                 "@metadata": {"@index-score": 0.85},
             },
         ]
+        mock_query_chain = MagicMock()
+        mock_session.query_collection.return_value = mock_query_chain
+        mock_query_chain.vector_search.return_value = mock_query_chain
+        mock_query_chain.order_by_score.return_value = mock_query_chain
+        mock_query_chain.take.return_value = mock_results
 
         # Call the function
         results = search_documents("test query", top_k=2)
@@ -395,9 +399,11 @@ class TestSearchDocuments:
         mock_session = MagicMock()
         mock_store.open_session.return_value.__enter__.return_value = mock_session
 
-        mock_query = MagicMock()
-        mock_session.query.return_value = mock_query
-        mock_query.raw_query.return_value = []
+        mock_query_chain = MagicMock()
+        mock_session.query_collection.return_value = mock_query_chain
+        mock_query_chain.vector_search.return_value = mock_query_chain
+        mock_query_chain.order_by_score.return_value = mock_query_chain
+        mock_query_chain.take.return_value = []
 
         # Call with custom parameters
         results = search_documents(
@@ -409,8 +415,12 @@ class TestSearchDocuments:
         )
 
         # Verify custom params were used
-        mock_ollama.embed.assert_called_once_with(model="custom-model", input="test query")
-        mock_document_store_class.assert_called_once_with("http://custom:8080", "customdb")
+        mock_ollama.embed.assert_called_once_with(
+            model="custom-model", input="test query"
+        )
+        mock_document_store_class.assert_called_once_with(
+            ["http://custom:8080"], "customdb"
+        )
         assert results == []
 
     @patch("scirag.service.database.ollama")
@@ -471,9 +481,11 @@ class TestSearchDocuments:
         mock_session = MagicMock()
         mock_store.open_session.return_value.__enter__.return_value = mock_session
 
-        mock_query = MagicMock()
-        mock_session.query.return_value = mock_query
-        mock_query.raw_query.return_value = []
+        mock_query_chain = MagicMock()
+        mock_session.query_collection.return_value = mock_query_chain
+        mock_query_chain.vector_search.return_value = mock_query_chain
+        mock_query_chain.order_by_score.return_value = mock_query_chain
+        mock_query_chain.take.return_value = []
 
         with patch.dict(
             os.environ,
@@ -485,8 +497,12 @@ class TestSearchDocuments:
         ):
             search_documents("test query")
 
-            mock_ollama.embed.assert_called_once_with(model="env-model", input="test query")
-            mock_document_store_class.assert_called_once_with("http://env:8080", "envdb")
+            mock_ollama.embed.assert_called_once_with(
+                model="env-model", input="test query"
+            )
+            mock_document_store_class.assert_called_once_with(
+                ["http://env:8080"], "envdb"
+            )
 
     @patch("scirag.service.database.ollama")
     @patch("scirag.service.database.DocumentStore")

@@ -56,24 +56,16 @@ def ingest(directory: Path, embedding_model: str | None, create_database_flag: b
                 click.echo("✓ Database created successfully!")
             except Exception as e:
                 click.echo(f"✗ Failed to create database: {e}", err=True)
-                click.echo(
-                    "\nPlease ensure RavenDB is running and accessible.", err=True
-                )
+                click.echo("\nPlease ensure RavenDB is running and accessible.", err=True)
                 raise click.Abort()
         else:
-            click.echo(
-                "✗ Error: Database does not exist!", err=True
-            )
+            click.echo("✗ Error: Database does not exist!", err=True)
             click.echo(
                 "\nPlease run the command with --create-database flag to create it:",
                 err=True,
             )
-            click.echo(
-                f"  scirag-ingest {directory} --create-database", err=True
-            )
-            click.echo(
-                "\nOr ensure RavenDB is running and the database exists.", err=True
-            )
+            click.echo(f"  scirag-ingest {directory} --create-database", err=True)
+            click.echo("\nOr ensure RavenDB is running and the database exists.", err=True)
             raise click.Abort()
 
     # Get embedding model
@@ -110,15 +102,9 @@ def ingest(directory: Path, embedding_model: str | None, create_database_flag: b
             # Check if it's a database not found error
             error_msg = str(e).lower()
             if "database" in error_msg and ("not" in error_msg or "exist" in error_msg):
-                click.echo(
-                    "\n✗ Error: Database does not exist!", err=True
-                )
-                click.echo(
-                    "Please run the command with --create-database flag:", err=True
-                )
-                click.echo(
-                    f"  scirag-ingest {directory} --create-database", err=True
-                )
+                click.echo("\n✗ Error: Database does not exist!", err=True)
+                click.echo("Please run the command with --create-database flag:", err=True)
+                click.echo(f"  scirag-ingest {directory} --create-database", err=True)
                 raise click.Abort()
             click.echo(f"\n✗ Error storing chunks: {e}", err=True)
             raise click.Abort()

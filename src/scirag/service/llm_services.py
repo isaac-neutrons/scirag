@@ -41,23 +41,6 @@ class LLMService(Protocol):
         """
         ...
 
-    async def generate_response_with_tools(
-        self, messages: list[dict], tools: list[dict]
-    ) -> dict:
-        """Generate a response with tool calling support.
-
-        Args:
-            messages: List of message dictionaries with 'role' and 'content' keys.
-            tools: List of tool definitions in OpenAI function calling format.
-
-        Returns:
-            dict: Response object with 'content' and optional 'tool_calls'.
-
-        Raises:
-            Exception: If the LLM service fails to generate a response.
-        """
-        ...
-
 
 class OllamaService:
     """Ollama LLM service implementation.
@@ -87,18 +70,13 @@ class OllamaService:
 
         Returns:
             str: The generated response content from the model.
-
-        Example:
-            >>> service = OllamaService("http://localhost:11434", "llama3")
-            >>> messages = [{"role": "user", "content": "Hello!"}]
-            >>> response = await service.generate_response(messages)
         """
         logger.info(f"🗣️  Generating response with {self.model}")
         logger.debug(f"Messages: {len(messages)} messages")
         for i, msg in enumerate(messages):
             role = msg.get("role", "unknown")
             content_preview = msg.get("content", "")[:100]
-            logger.debug(f"  Message {i+1} ({role}): {content_preview}...")
+            logger.debug(f"  Message {i + 1} ({role}): {content_preview}...")
 
         # Use the synchronous chat method from ollama
         # In a real async context, you might want to use asyncio.to_thread
@@ -114,49 +92,6 @@ class OllamaService:
             return content
         except Exception as e:
             logger.error(f"❌ Ollama API error: {e}", exc_info=True)
-            raise
-
-    async def generate_response_with_tools(
-        self, messages: list[dict], tools: list[dict]
-    ) -> dict:
-        """Generate a response with tool calling support using Ollama.
-
-        Args:
-            messages: List of message dictionaries with 'role' and 'content' keys.
-            tools: List of tool definitions in OpenAI function calling format.
-
-        Returns:
-            dict: Response object with 'content' and optional 'tool_calls'.
-        """
-        logger.info(f"🛠️  Generating response with tools using {self.model}")
-        logger.debug(f"Messages: {len(messages)} messages, Tools: {len(tools)}")
-
-        try:
-            logger.debug(f"Calling Ollama API at {self.host} with tools...")
-            response = self.client.chat(
-                model=self.model,
-                messages=messages,
-                tools=tools
-            )
-            logger.debug("✅ Ollama API call with tools successful")
-
-            # Return response object that may contain tool_calls
-            message = response.get("message", {})
-            
-            # Create response object
-            result = type('Response', (), {
-                'content': message.get('content', ''),
-                'tool_calls': message.get('tool_calls', [])
-            })()
-            
-            if result.tool_calls:
-                logger.info(f"🔧 LLM returned {len(result.tool_calls)} tool call(s)")
-            else:
-                logger.info(f"✅ Response generated: {len(result.content)} characters")
-            
-            return result
-        except Exception as e:
-            logger.error(f"❌ Ollama API error with tools: {e}", exc_info=True)
             raise
 
 
@@ -175,17 +110,6 @@ def get_llm_service(config: dict | None = None) -> LLMService:
 
     Raises:
         ValueError: If an unsupported service type is specified.
-
-    Example:
-        >>> # Use defaults from environment
-        >>> service = get_llm_service()
-        >>>
-        >>> # Or provide custom config
-        >>> service = get_llm_service({
-        ...     "service": "ollama",
-        ...     "host": "http://localhost:11434",
-        ...     "model": "llama3"
-        ... })
     """
     if config is None:
         config = {}

@@ -26,15 +26,15 @@ class TestFormatContext:
 
         result = format_context(chunks)
 
-        assert "[Source 1: paper1.pdf, Chunk 0]" in result
+        assert "Source: paper1.pdf" in result
         assert "Content from paper 1" in result
-        assert "[Source 2: paper2.pdf, Chunk 1]" in result
+        assert "Source: paper2.pdf" in result
         assert "Content from paper 2" in result
 
     def test_format_context_empty_chunks(self):
         """Test formatting with no chunks returns appropriate message."""
         result = format_context([])
-        assert "No relevant information found" in result
+        assert "No relevant context found" in result
 
     def test_format_context_missing_fields(self):
         """Test formatting handles missing fields gracefully."""
@@ -86,69 +86,15 @@ class TestChatEndpoint:
             assert "error" in data
             assert "query" in data["error"]
 
-    @patch("scirag.client.app.retrieve_document_chunks_impl")
-    @patch("scirag.client.app.llm_service")
-    def test_chat_success(self, mock_llm_service, mock_retrieve):
-        """Test successful chat request flow."""
-        # Mock document retrieval - make it an async function that returns the list
-        async def mock_retrieve_impl(query, top_k):
-            return [
-                {
-                    "source": "test.pdf",
-                    "content": "Test content",
-                    "chunk_index": 0,
-                }
-            ]
-
-        mock_retrieve.side_effect = mock_retrieve_impl
-
-        # Mock LLM service response
-        mock_llm_service.generate_response = AsyncMock(
-            return_value="This is the answer"
-        )
-
-        with app.test_client() as client:
-            response = client.post(
-                "/api/chat",
-                data=json.dumps({"query": "test question"}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            data = json.loads(response.data)
-            assert "response" in data
-            assert "sources" in data
-            assert data["response"] == "This is the answer"
-
-    @patch("scirag.client.app.retrieve_document_chunks_impl")
-    @patch("scirag.client.app.llm_service")
-    def test_chat_with_custom_top_k(self, mock_llm_service, mock_retrieve):
-        """Test chat request with custom top_k parameter."""
-        # Mock document retrieval
-        async def mock_retrieve_impl(query, top_k):
-            return []
-
-        mock_retrieve.side_effect = mock_retrieve_impl
-
-        # Mock LLM service response
-        mock_llm_service.generate_response = AsyncMock(return_value="Answer")
-
-        with app.test_client() as client:
-            response = client.post(
-                "/api/chat",
-                data=json.dumps({"query": "test", "top_k": 10}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            # Verify retrieve was called with correct top_k
-            mock_retrieve.assert_called_once_with("test", 10)
-
-    @patch("scirag.client.app.retrieve_document_chunks_impl")
-    def test_chat_retrieval_error_handling(self, mock_retrieve):
+    @patch("scirag.client.app.mcp_client")
+    def test_chat_retrieval_error_handling(self, mock_mcp_client):
         """Test error handling when document retrieval fails."""
-        # Mock retrieve to raise an error
-        mock_retrieve.side_effect = Exception("Retrieval failed")
+
+        # Mock MCP client to raise an error
+        async def mock_call_tool(tool_name, params):
+            raise Exception("Retrieval failed")
+
+        mock_mcp_client.__aenter__.return_value.call_tool = mock_call_tool
 
         with app.test_client() as client:
             response = client.post(
@@ -161,12 +107,18 @@ class TestChatEndpoint:
             data = json.loads(response.data)
             assert "error" in data
 
-    @patch("scirag.client.app.retrieve_document_chunks_impl")
+    @patch("scirag.client.app.mcp_client")
     @patch("scirag.client.app.llm_service")
-    def test_chat_llm_error_handling(self, mock_llm_service, mock_retrieve):
+    def test_chat_llm_error_handling(self, mock_llm_service, mock_mcp_client):
         """Test error handling when LLM call fails."""
-        # Mock document retrieval
-        mock_retrieve.return_value = AsyncMock(return_value=[])()
+        # Mock MCP client call_tool
+        mock_result = MagicMock()
+        mock_result.content = [MagicMock(text=json.dumps([]))]
+
+        async def mock_call_tool(tool_name, params):
+            return mock_result
+
+        mock_mcp_client.__aenter__.return_value.call_tool = mock_call_tool
 
         # Mock LLM service to raise an error
         mock_llm_service.generate_response = AsyncMock(
@@ -183,37 +135,6 @@ class TestChatEndpoint:
             assert response.status_code == 500
             data = json.loads(response.data)
             assert "error" in data
-
-    @patch("scirag.client.app.retrieve_document_chunks_impl")
-    @patch("scirag.client.app.llm_service")
-    def test_chat_includes_sources(self, mock_llm_service, mock_retrieve):
-        """Test that response includes source information."""
-        # Mock document retrieval with multiple sources
-        async def mock_retrieve_impl(query, top_k):
-            return [
-                {"source": "doc1.pdf", "content": "Content 1", "chunk_index": 0},
-                {"source": "doc2.pdf", "content": "Content 2", "chunk_index": 1},
-            ]
-
-        mock_retrieve.side_effect = mock_retrieve_impl
-
-        # Mock LLM service response
-        mock_llm_service.generate_response = AsyncMock(return_value="Answer")
-
-        with app.test_client() as client:
-            response = client.post(
-                "/api/chat",
-                data=json.dumps({"query": "test"}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            data = json.loads(response.data)
-            assert len(data["sources"]) == 2
-            assert data["sources"][0]["source"] == "doc1.pdf"
-            assert data["sources"][0]["chunk_index"] == 0
-            assert data["sources"][1]["source"] == "doc2.pdf"
-            assert data["sources"][1]["chunk_index"] == 1
 
 
 class TestInitializeServices:

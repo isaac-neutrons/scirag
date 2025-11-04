@@ -43,9 +43,6 @@ def extract_text_from_pdf(pdf_path: Path) -> str:
 
     Returns:
         str: Concatenated text from all pages
-
-    Example:
-        >>> text = extract_text_from_pdf(Path("document.pdf"))
     """
     doc = fitz.open(pdf_path)
     text = ""
@@ -67,9 +64,6 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
 
     Returns:
         list[str]: List of text chunks
-
-    Example:
-        >>> chunks = chunk_text("This is a long document...", chunk_size=100, overlap=10)
     """
     words = text.split()
     chunks = []
@@ -102,9 +96,6 @@ def generate_embeddings(texts: list[str], model: str) -> list[list[float]]:
 
     Returns:
         list[list[float]]: List of embedding vectors
-
-    Example:
-        >>> embeddings = generate_embeddings(["text1", "text2"], "nomic-embed-text")
     """
     embeddings = []
 
@@ -124,9 +115,6 @@ def ingest_pdf(pdf_path: Path, embedding_model: str) -> list[DocumentChunk]:
 
     Returns:
         list[DocumentChunk]: List of document chunks with embeddings
-
-    Example:
-        >>> chunks = ingest_pdf(Path("doc.pdf"), "nomic-embed-text")
     """
     print(f"Processing {pdf_path.name}...")
 
@@ -193,9 +181,6 @@ def store_chunks(chunks: list[DocumentChunk]) -> None:
 
     Args:
         chunks: List of DocumentChunk objects to store
-
-    Example:
-        >>> store_chunks(document_chunks)
     """
     store = create_document_store()
 

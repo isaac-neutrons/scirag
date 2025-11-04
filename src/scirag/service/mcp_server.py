@@ -7,7 +7,7 @@ from typing import Any
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-from scirag.service.database import search_documents
+from scirag.service.database import get_sources, search_documents
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "DEBUG")
@@ -100,16 +100,43 @@ async def retrieve_document_chunks(query: str, top_k: int = 5) -> list[dict[str,
         raise ValueError(error_msg) from e
 
 
+@mcp.tool()
+async def list_document_sources() -> list[dict[str, Any]]:
+    """
+    Lists all unique document sources in the knowledge base with their metadata.
+    Returns information about each document including filename, metadata, and chunk count.
+    Use this tool to see what documents are available in the system.
+    """
+    logger.info("🔌 MCP Tool: list_document_sources called via MCP protocol")
+
+    try:
+        logger.debug("MCP Tool: Calling get_sources from database...")
+        sources = get_sources()
+        logger.info(f"✅ MCP Tool: Returning {len(sources)} sources to MCP client")
+        return sources
+    except ConnectionError as e:
+        error_msg = f"Connection error: {e} - Check if RavenDB is running"
+        logger.error(f"❌ MCP Tool: {error_msg}", exc_info=True)
+        raise ValueError(error_msg) from e
+    except Exception as e:
+        error_msg = f"Unexpected error: {type(e).__name__}: {e}"
+        logger.error(f"❌ MCP Tool: {error_msg}", exc_info=True)
+        raise ValueError(error_msg) from e
+
+
 def main() -> None:
     """Entry point for the MCP server command-line interface."""
     logger.info("🚀 Starting SciRAG MCP Server...")
     logger.info("📡 MCP Server: Listening on STDIO transport")
     logger.info("🔧 MCP Server: Ready to receive tool calls")
-    logger.info("🔌 MCP Server: Tool available - retrieve_document_chunks")
+    logger.info("🔌 MCP Server: Tools available:")
+    logger.info("   - retrieve_document_chunks: Search for relevant document chunks")
+    logger.info("   - list_document_sources: List all available documents")
 
     try:
         logger.info("✅ MCP Server: Initialization complete")
-        mcp.run(transport="stdio")
+        # Use SSE transport for HTTP connectivity
+        mcp.run(transport="sse", host="0.0.0.0", port=8001)
     except KeyboardInterrupt:
         logger.info("⚠️  MCP Server: Received shutdown signal")
         logger.info("👋 MCP Server: Shutting down gracefully")

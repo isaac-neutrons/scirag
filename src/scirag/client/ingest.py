@@ -35,7 +35,6 @@ class DocumentChunk:
     metadata: dict[str, str | int | float]
 
 
-
 def extract_text_from_pdf(pdf_path: Path) -> str:
     """Extract all text from a PDF file.
 

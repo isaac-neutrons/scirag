@@ -41,6 +41,23 @@ class LLMService(Protocol):
         """
         ...
 
+    async def generate_response_with_tools(
+        self, messages: list[dict], tools: list[dict]
+    ) -> dict:
+        """Generate a response with tool calling support.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content' keys.
+            tools: List of tool definitions in OpenAI function calling format.
+
+        Returns:
+            dict: Response object with 'content' and optional 'tool_calls'.
+
+        Raises:
+            Exception: If the LLM service fails to generate a response.
+        """
+        ...
+
 
 class OllamaService:
     """Ollama LLM service implementation.
@@ -97,6 +114,49 @@ class OllamaService:
             return content
         except Exception as e:
             logger.error(f"❌ Ollama API error: {e}", exc_info=True)
+            raise
+
+    async def generate_response_with_tools(
+        self, messages: list[dict], tools: list[dict]
+    ) -> dict:
+        """Generate a response with tool calling support using Ollama.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content' keys.
+            tools: List of tool definitions in OpenAI function calling format.
+
+        Returns:
+            dict: Response object with 'content' and optional 'tool_calls'.
+        """
+        logger.info(f"🛠️  Generating response with tools using {self.model}")
+        logger.debug(f"Messages: {len(messages)} messages, Tools: {len(tools)}")
+
+        try:
+            logger.debug(f"Calling Ollama API at {self.host} with tools...")
+            response = self.client.chat(
+                model=self.model,
+                messages=messages,
+                tools=tools
+            )
+            logger.debug("✅ Ollama API call with tools successful")
+
+            # Return response object that may contain tool_calls
+            message = response.get("message", {})
+            
+            # Create response object
+            result = type('Response', (), {
+                'content': message.get('content', ''),
+                'tool_calls': message.get('tool_calls', [])
+            })()
+            
+            if result.tool_calls:
+                logger.info(f"🔧 LLM returned {len(result.tool_calls)} tool call(s)")
+            else:
+                logger.info(f"✅ Response generated: {len(result.content)} characters")
+            
+            return result
+        except Exception as e:
+            logger.error(f"❌ Ollama API error with tools: {e}", exc_info=True)
             raise
 
 

@@ -6,16 +6,15 @@ via an MCP server and response generation via an LLM service.
 """
 
 import asyncio
+import json
 import logging
 import os
-from typing import Any
 
 from dotenv import load_dotenv
+from fastmcp import Client
 from flask import Flask, jsonify, render_template, request
 
-from scirag.service.database import get_sources
 from scirag.service.llm_services import get_llm_service
-from scirag.service.mcp_server import retrieve_document_chunks_impl
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "DEBUG")
@@ -35,12 +34,13 @@ logger.debug("Flask app created")
 
 # Global service instances
 llm_service = None
+mcp_client = None
 
 
 def initialize_services():
-    """Initialize LLM service on startup."""
-    global llm_service
-    logger.info("🔧 Initializing LLM services...")
+    """Initialize LLM service and MCP client on startup."""
+    global llm_service, mcp_client
+    logger.info("🔧 Initializing services...")
 
     # Initialize LLM service
     llm_config = {
@@ -52,29 +52,10 @@ def initialize_services():
     llm_service = get_llm_service(llm_config)
     logger.info("✅ LLM service initialized successfully")
 
-
-def format_context(chunks: list[dict[str, Any]]) -> str:
-    """Format retrieved document chunks into a context string.
-
-    Args:
-        chunks: List of document chunks with 'source', 'content', 'chunk_index' keys
-
-    Returns:
-        Formatted context string with sources and content
-    """
-    if not chunks:
-        return "No relevant information found in the knowledge base."
-
-    context_parts = []
-    for i, chunk in enumerate(chunks, 1):
-        source = chunk.get("source", "Unknown")
-        content = chunk.get("content", "")
-        chunk_idx = chunk.get("chunk_index", 0)
-        context_parts.append(
-            f"[Source {i}: {source}, Chunk {chunk_idx}]\n{content}\n"
-        )
-
-    return "\n".join(context_parts)
+    # Initialize MCP client with server URL
+    mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8001/sse")
+    mcp_client = Client(mcp_server_url)
+    logger.info(f"✅ MCP client initialized successfully (server: {mcp_server_url})")
 
 
 @app.route("/")
@@ -89,7 +70,7 @@ def index():
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    """Handle chat requests using RAG pipeline.
+    """Handle chat requests using RAG pipeline with MCP server.
 
     Expects JSON body with 'query' field. Returns JSON with 'response' field.
 
@@ -103,7 +84,7 @@ def chat():
         {
             "response": "Based on the documents, quantum entanglement is...",
             "sources": [
-                {"source": "paper.pdf", "chunk_index": 0},
+                {"source": "paper.pdf", "chunk_index": 0, "content": "..."},
                 ...
             ]
         }
@@ -119,104 +100,89 @@ def chat():
             logger.warning("❌ Missing 'query' field in request")
             return jsonify({"error": "Missing 'query' field in request"}), 400
 
-        query = data["query"]
+        user_query = data["query"]
         top_k = data.get("top_k", 5)
-        logger.info(f"🔍 Query: '{query[:100]}...' (top_k={top_k})")
+        logger.info(f"🔍 Query: '{user_query[:100]}...'")
 
-        # Retrieve relevant document chunks via direct function call
-        # Run async function in sync context
-        logger.debug("🔄 Creating event loop for document retrieval...")
+        # Run async operations in event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            logger.info("📚 Retrieving document chunks...")
-            chunks = loop.run_until_complete(
-                retrieve_document_chunks_impl(query, top_k)
+            # 1. Call Retrieval Tool via FastMCP client
+            logger.info("📡 Calling MCP retrieval tool...")
+
+            async def get_chunks():
+                async with mcp_client:
+                    result = await mcp_client.call_tool(
+                        "retrieve_document_chunks", {"query": user_query, "top_k": top_k}
+                    )
+                    # Extract content from CallToolResult
+                    # result.content is a list of TextContent objects
+                    if hasattr(result, "content") and result.content:
+                        # If content is a list of TextContent, get the first one's text
+                        if isinstance(result.content, list):
+                            # The text field contains the JSON data
+                            return json.loads(result.content[0].text)
+                        return result.content
+                    return result
+
+            retrieved_chunks = loop.run_until_complete(get_chunks())
+            logger.info(f"✅ Retrieved {len(retrieved_chunks)} chunks")
+
+            # 2. Format context from retrieved chunks
+            context = format_context(retrieved_chunks)
+
+            # 3. Construct prompt with context
+            system_prompt = (
+                "You are an expert assistant. Your task is to answer the user's question based "
+                "ONLY on the context provided below. Do not use any outside knowledge. "
+                "If the answer cannot be found in the context, state that clearly. "
+                "Cite the source filename for the information you use."
             )
-            logger.info(f"✅ Retrieved {len(chunks)} document chunks")
-            logger.debug(f"Chunks: {[c.get('source', 'Unknown') for c in chunks]}")
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": f"Context:\n---\n{context}\n---\n\nQuestion: {user_query}",
+                },
+            ]
+
+            # 4. Call LLM Service to generate response
+            logger.info("🤖 Generating response from LLM...")
+            llm_response = loop.run_until_complete(llm_service.generate_response(messages))
+            logger.info("✅ Response generated")
+
+            # 5. Return response with sources
+            logger.info("✅ Chat request completed successfully")
+            return jsonify({"response": llm_response, "sources": retrieved_chunks})
+
         finally:
             loop.close()
-
-        # Format context from retrieved chunks
-        logger.debug("📝 Formatting context from chunks...")
-        context = format_context(chunks)
-        logger.debug(f"Context length: {len(context)} characters")
-
-        # Create system prompt
-        logger.debug("🎯 Creating system prompt...")
-        system_prompt = (
-            "You are a helpful AI assistant. Answer the user's question based ONLY "
-            "on the provided context from the knowledge base.\n\n"
-            "If the context doesn't contain enough information to answer the question, "
-            "say so clearly. Do not make up information or use knowledge outside the "
-            "provided context.\n\n"
-            "Always cite the sources you use in your answer."
-        )
-
-        # Construct messages for LLM
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": f"Context:\n{context}\n\nQuestion: {query}",
-            },
-        ]
-        logger.debug(f"Constructed {len(messages)} messages for LLM")
-
-        # Generate response using LLM service (sync call)
-        logger.info("🤖 Generating LLM response...")
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            response = loop.run_until_complete(llm_service.generate_response(messages))
-            logger.info(f"✅ LLM response generated ({len(response)} chars)")
-            logger.debug(f"Response preview: {response[:200]}...")
-        finally:
-            loop.close()
-
-        # Extract source information
-        sources = [
-            {
-                "source": chunk.get("source", "Unknown"),
-                "chunk_index": chunk.get("chunk_index", 0),
-            }
-            for chunk in chunks
-        ]
-        logger.debug(f"Extracted {len(sources)} sources")
-
-        logger.info("✅ Chat request completed successfully")
-        return jsonify({"response": response, "sources": sources})
 
     except Exception as e:
         logger.error(f"❌ Error processing chat request: {e}", exc_info=True)
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
 
-@app.route("/api/sources", methods=["GET"])
-def sources():
-    """Get list of unique document sources with metadata.
+def format_context(chunks: list[dict]) -> str:
+    """Format retrieved chunks into context string for LLM.
+
+    Args:
+        chunks: List of document chunks with metadata
 
     Returns:
-        JSON with list of sources, each containing:
-        - source: filename
-        - metadata: document metadata dict
-        - chunk_count: number of chunks
+        Formatted context string
     """
-    logger.info("📊 API: Fetching sources list")
+    if not chunks:
+        return "No relevant context found."
 
-    try:
-        sources_list = get_sources()
-        logger.info(f"✅ API: Returning {len(sources_list)} sources")
-        return jsonify({"sources": sources_list})
-
-    except ConnectionError as e:
-        logger.error(f"❌ API: Connection error: {e}", exc_info=True)
-        return jsonify({"error": f"Cannot connect to database: {str(e)}"}), 503
-
-    except Exception as e:
-        logger.error(f"❌ API: Error fetching sources: {e}", exc_info=True)
-        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+    context_str = ""
+    for chunk in chunks:
+        source = chunk.get("source", "Unknown")
+        content = chunk.get("content", "")
+        context_str += f"Source: {source}\nContent: {content}\n\n"
+    return context_str.strip()
 
 
 @app.route("/health", methods=["GET"])

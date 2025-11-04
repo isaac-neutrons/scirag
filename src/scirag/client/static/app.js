@@ -107,7 +107,7 @@ function addMessage(content, role, sources = null) {
     
     if (sources && sources.length > 0) {
         messageHTML += '<div class="message-sources">';
-        messageHTML += '📚 Sources: ';
+        messageHTML += '<i class="bi bi-files"></i> <strong>Sources:</strong> ';
         sources.forEach(source => {
             messageHTML += `<span class="source-tag">${escapeHtml(source.source)} (chunk ${source.chunk_index})</span>`;
         });
@@ -125,12 +125,14 @@ function showLoading() {
     const loadingDiv = document.createElement('div');
     const loadingId = 'loading-' + Date.now();
     loadingDiv.id = loadingId;
-    loadingDiv.className = 'loading-indicator active';
+    loadingDiv.className = 'message assistant';
     loadingDiv.innerHTML = `
-        <div class="loading-dots">
-            <div class="loading-dot"></div>
-            <div class="loading-dot"></div>
-            <div class="loading-dot"></div>
+        <div class="loading-indicator">
+            <div class="loading-dots">
+                <div class="loading-dot"></div>
+                <div class="loading-dot"></div>
+                <div class="loading-dot"></div>
+            </div>
         </div>
     `;
     chatMessages.appendChild(loadingDiv);
@@ -147,8 +149,11 @@ function removeLoading(loadingId) {
 
 function showError(message) {
     const errorDiv = document.createElement('div');
-    errorDiv.className = 'error-message';
-    errorDiv.textContent = message;
+    errorDiv.className = 'alert alert-danger alert-dismissible fade show';
+    errorDiv.innerHTML = `
+        <i class="bi bi-exclamation-triangle-fill"></i> ${escapeHtml(message)}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
     chatMessages.appendChild(errorDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
@@ -187,25 +192,28 @@ function displaySources() {
 
     if (retrievedSources.length === 0) {
         sourcesContent.innerHTML = `
-            <div class="no-sources">
-                <h3>📭 No Sources Yet</h3>
-                <p>Ask a question in the Chat tab to retrieve relevant sources.<br>
-                   The retrieved sources will appear here.</p>
+            <div class="text-center py-5">
+                <i class="bi bi-inbox" style="font-size: 3rem; color: #6c757d;"></i>
+                <h5 class="mt-3 text-muted">No Sources Yet</h5>
+                <p class="text-muted">
+                    Ask a question in the Chat tab to retrieve relevant sources.<br>
+                    The retrieved sources will appear here.
+                </p>
             </div>
         `;
         return;
     }
 
-    // Build sources table showing retrieved chunks
+    // Build sources table using Bootstrap
     let tableHTML = `
-        <div class="sources-table-container">
-            <table class="sources-table">
+        <div class="table-responsive">
+            <table class="table table-hover sources-table">
                 <thead>
                     <tr>
-                        <th>Source Document</th>
-                        <th>Chunk Index</th>
-                        <th>Relevance Score</th>
-                        <th>Content Preview</th>
+                        <th><i class="bi bi-file-text"></i> Source Document</th>
+                        <th><i class="bi bi-hash"></i> Chunk</th>
+                        <th><i class="bi bi-star-fill"></i> Score</th>
+                        <th><i class="bi bi-eye"></i> Preview</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -218,8 +226,10 @@ function displaySources() {
             <tr>
                 <td class="source-filename">${escapeHtml(source.source || 'Unknown')}</td>
                 <td>${source.chunk_index !== undefined ? source.chunk_index : 'N/A'}</td>
-                <td>${source.score !== undefined ? source.score.toFixed(3) : 'N/A'}</td>
-                <td class="content-preview">${escapeHtml(preview)}</td>
+                <td>
+                    ${source.score !== undefined ? source.score.toFixed(3) : 'N/A'}
+                </td>
+                <td class="content-preview" title="${escapeHtml(content)}">${escapeHtml(preview)}</td>
             </tr>
         `;
     });

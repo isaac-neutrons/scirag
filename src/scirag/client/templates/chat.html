@@ -4,83 +4,114 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SciRAG - Document Chat</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
-    <div class="chat-container">
-        <div class="chat-header">
-            <div>
-                <h1>🔬 SciRAG Document Chat</h1>
-                <p>Ask questions about your scientific documents</p>
-            </div>
-            <div class="status-indicator" title="Connected"></div>
-        </div>
-
-        <!-- Tab Navigation -->
-        <div class="tab-navigation">
-            <button class="tab-button active" onclick="switchTab('chat')">💬 Chat</button>
-            <button class="tab-button" onclick="switchTab('sources')">📚 Sources</button>
-        </div>
-
-        <!-- Chat Tab -->
-        <div class="tab-content active" id="chatTab">
-            <div class="chat-messages" id="chatMessages">
-                <div class="welcome-message">
-                    <h2>👋 Welcome to SciRAG!</h2>
-                    <p>Ask me anything about your ingested documents.<br>
-                       I'll search through the knowledge base and provide answers with sources.</p>
-                    <div class="example-questions">
-                        <div class="example-question" onclick="sendExampleQuestion(this)">
-                            What are the main findings?
-                        </div>
-                        <div class="example-question" onclick="sendExampleQuestion(this)">
-                            Explain the methodology used
-                        </div>
-                        <div class="example-question" onclick="sendExampleQuestion(this)">
-                            What are the key conclusions?
+<body class="bg-light">
+    <div class="container-fluid h-100">
+        <div class="row h-100 justify-content-center align-items-center py-4">
+            <div class="col-12 col-lg-10 col-xl-8">
+                <div class="card shadow-lg border-0 chat-card">
+                    <!-- Header -->
+                    <div class="card-header bg-header text-muted py-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h4 class="mb-1"><i class="bi bi-chat-dots-fill"></i> SciRAG Document Chat</h4>
+                                <small class="opacity-75">Ask questions about your scientific documents</small>
+                            </div>
+                            <span class="badge bg-success"><i class="bi bi-circle-fill pulse"></i> Connected</span>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            <div class="chat-input-area">
-                <div class="input-wrapper">
-                    <div class="input-group">
-                        <textarea 
-                            id="messageInput" 
-                            placeholder="Ask a question about your documents..." 
-                            rows="1"
-                            onkeydown="handleKeyPress(event)"
-                        ></textarea>
-                    </div>
-                    <button id="sendButton" onclick="sendMessage()">
-                        Send
-                    </button>
-                </div>
-            </div>
-        </div>
+                    <!-- Tab Navigation -->
+                    <ul class="nav nav-tabs nav-fill" id="mainTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="chat-tab" data-bs-toggle="tab" data-bs-target="#chatTab" type="button" role="tab" onclick="switchTab('chat')">
+                                <i class="bi bi-chat-left-text"></i> Chat
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="sources-tab" data-bs-toggle="tab" data-bs-target="#sourcesTab" type="button" role="tab" onclick="switchTab('sources')">
+                                <i class="bi bi-file-earmark-text"></i> Sources
+                            </button>
+                        </li>
+                    </ul>
 
-        <!-- Sources Tab -->
-        <div class="tab-content" id="sourcesTab">
-            <div class="sources-container">
-                <div class="sources-header">
-                    <h2>📚 Retrieved Sources</h2>
-                    <p>Sources used to answer your latest question</p>
-                </div>
-                <div id="sourcesContent">
-                    <div class="loading-sources">
-                        <div class="loading-dots">
-                            <div class="loading-dot"></div>
-                            <div class="loading-dot"></div>
-                            <div class="loading-dot"></div>
+                    <!-- Tab Content -->
+                    <div class="tab-content" id="mainTabsContent">
+                        <!-- Chat Tab -->
+                        <div class="tab-pane fade show active" id="chatTab" role="tabpanel">
+                            <div class="card-body p-0 d-flex flex-column chat-container">
+                                <!-- Messages Area -->
+                                <div class="flex-grow-1 overflow-auto p-3 bg-light" id="chatMessages" style="height: 60vh;">
+                                    <div class="text-center py-5 welcome-message">
+                                        <h3 class="text-primary mb-3"><i class="bi bi-robot"></i> Welcome to SciRAG!</h3>
+                                        <p class="text-muted mb-4">
+                                            Ask me anything about your ingested documents.<br>
+                                            I'll search through the knowledge base and provide answers with sources.
+                                        </p>
+                                        <div class="d-grid gap-2 col-md-8 mx-auto">
+                                            <button class="btn btn-outline-primary text-start" onclick="sendExampleQuestion(this)">
+                                                What are the main findings?
+                                            </button>
+                                            <button class="btn btn-outline-primary text-start" onclick="sendExampleQuestion(this)">
+                                                Explain the methodology used
+                                            </button>
+                                            <button class="btn btn-outline-primary text-start" onclick="sendExampleQuestion(this)">
+                                                What are the key conclusions?
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Input Area -->
+                                <div class="border-top p-3 bg-white">
+                                    <div class="input-group">
+                                        <textarea 
+                                            class="form-control" 
+                                            id="messageInput" 
+                                            placeholder="Ask a question about your documents..." 
+                                            rows="2"
+                                            onkeydown="handleKeyPress(event)"
+                                        ></textarea>
+                                        <button class="btn btn-primary px-4" id="sendButton" onclick="sendMessage()">
+                                            <i class="bi bi-send-fill"></i> Send
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <p style="margin-top: 10px;">Loading sources...</p>
+
+                        <!-- Sources Tab -->
+                        <div class="tab-pane fade" id="sourcesTab" role="tabpanel">
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <h5><i class="bi bi-file-earmark-text"></i> Retrieved Sources</h5>
+                                    <p class="text-muted small mb-0">Sources used to answer your latest question</p>
+                                </div>
+                                <div id="sourcesContent">
+                                    <div class="text-center py-5">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                        <p class="text-muted mt-3">Loading sources...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom JS -->
     <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

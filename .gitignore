@@ -1,6 +1,7 @@
 data/
 reports/
 results/
+topology_files/
 
 # Documents (user-specific PDFs)
 documents/*.pdf

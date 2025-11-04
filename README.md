@@ -203,9 +203,3 @@ curl -X POST http://localhost:5000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"query": "What are the main findings about X?"}'
 ```
-
-## References
-
-- [Retrieval-Augmented Generation (RAG)](https://arxiv.org/abs/2005.11401)
-- [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
-- [Vector Databases for LLMs](https://www.pinecone.io/learn/vector-database/)

@@ -83,8 +83,10 @@ Edit `.env` with your settings:
 ```env
 # Ollama Configuration
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=gemma3:4b
-OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+
+# Models to use
+LLM_MODEL=gemma3:4b
+EMBEDDING_MODEL=nomic-embed-text
 
 # MCP Server Configuration
 MCP_SERVER_URL=http://localhost:8001/mcp
@@ -138,7 +140,7 @@ python -m scirag.client.cli documents/
 scirag-ingest documents/ --embedding-model mxbai-embed-large
 
 # Set embedding model via environment variable
-export OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+export EMBEDDING_MODEL=nomic-embed-text
 scirag-ingest documents/
 
 # Get help

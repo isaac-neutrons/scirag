@@ -3,9 +3,20 @@
 import os
 from typing import Any
 
-import ollama
+import requests
 from dotenv import load_dotenv
 from ravendb import DocumentStore
+from ravendb.documents.indexes.definitions import (
+    FieldIndexing,
+    FieldStorage,
+    IndexDefinition,
+    IndexFieldOptions,
+)
+from ravendb.documents.indexes.vector.options import VectorOptions
+from ravendb.documents.operations.indexes import GetIndexNamesOperation, PutIndexesOperation
+from ravendb.serverwide.operations.common import DeleteDatabaseOperation
+
+from scirag.service.llm_services import get_llm_service
 
 # Load environment variables
 load_dotenv()
@@ -68,20 +79,13 @@ def ensure_index_exists(store: DocumentStore) -> None:
     Args:
         store: Initialized DocumentStore instance
     """
-    from ravendb.documents.indexes.definitions import IndexDefinition, IndexFieldOptions
-    from ravendb.documents.indexes.vector.options import VectorOptions
-    from ravendb.documents.operations.indexes import GetIndexNamesOperation
 
     index_name = "DocumentChunks/ByEmbedding"
 
-    try:
-        # Check if index already exists
-        existing_indexes = store.maintenance.send(GetIndexNamesOperation(0, 100))
-        if index_name in existing_indexes:
-            return  # Index already exists
-    except Exception:
-        # If we can't check, try to create anyway
-        pass
+    # Check if index already exists
+    existing_indexes = store.maintenance.send(GetIndexNamesOperation(0, 100))
+    if index_name in existing_indexes:
+        return  # Index already exists
 
     # Create index definition with vector search support
     index_definition = IndexDefinition()
@@ -99,9 +103,6 @@ def ensure_index_exists(store: DocumentStore) -> None:
         }"""
     }
 
-    # Configure the embedding field as a vector field with 768 dimensions
-    from ravendb.documents.indexes.definitions import FieldIndexing, FieldStorage
-
     vector_options = VectorOptions(dimensions=768)
 
     index_definition.fields = {
@@ -109,9 +110,6 @@ def ensure_index_exists(store: DocumentStore) -> None:
             storage=FieldStorage.YES, indexing=FieldIndexing.NO, vector=vector_options
         )
     }
-
-    # Create the index
-    from ravendb.documents.operations.indexes import PutIndexesOperation
 
     store.maintenance.send(PutIndexesOperation(index_definition))
 
@@ -153,7 +151,6 @@ def create_database(url: str | None = None, database: str | None = None) -> None
         url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
         database: Database name (defaults to value from RavenDBConfig.get_database_name())
     """
-    import requests
 
     if url is None:
         url = RavenDBConfig.get_url()
@@ -177,7 +174,6 @@ def delete_database(url: str | None = None, database: str | None = None) -> None
         url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
         database: Database name (defaults to value from RavenDBConfig.get_database_name())
     """
-    from ravendb.serverwide.operations.common import DeleteDatabaseOperation
 
     if url is None:
         url = RavenDBConfig.get_url()
@@ -235,8 +231,8 @@ def search_documents(
     Args:
         query: The text query to search for
         top_k: Number of top results to return (default: 5)
-        embedding_model: Ollama embedding model name
-            (defaults to OLLAMA_EMBEDDING_MODEL env or 'nomic-embed-text')
+        embedding_model: embedding model name
+            (defaults to EMBEDDING_MODEL env or 'nomic-embed-text')
         url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
         database: Database name (defaults to value from RavenDBConfig.get_database_name())
 
@@ -251,25 +247,18 @@ def search_documents(
     """
     # Get defaults
     if embedding_model is None:
-        embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+        embedding_model = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
     if url is None:
         url = RavenDBConfig.get_url()
     if database is None:
         database = RavenDBConfig.get_database_name()
 
-    # 1. Generate query embedding
-    try:
-        response = ollama.embed(model=embedding_model, input=query)
-        query_embedding = response["embeddings"][0]
-    except ConnectionError as e:
-        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        error_msg = f"Cannot connect to Ollama at {ollama_host} - Is Ollama running?"
-        raise ConnectionError(error_msg) from e
-    except KeyError as e:
-        error_msg = f"Invalid response from Ollama: {e} - Check if model '{embedding_model}' exists"
-        raise ValueError(error_msg) from e
+    # Generate query embedding
+    llm_service = os.getenv("LLM_SERVICE", "ollama")
+    service = get_llm_service({"service": llm_service})
+    query_embedding = service.generate_embeddings([query], embedding_model)[0]
 
-    # 2. Query RavenDB with vector search
+    # Query RavenDB with vector search
     store = DocumentStore([url], database)
     store.initialize()
 
@@ -285,7 +274,7 @@ def search_documents(
                 .take(top_k)
             )
 
-        # 3. Format the results
+        # Format the results
         formatted_results = [
             {
                 "source": result.get("source_filename", "Unknown"),

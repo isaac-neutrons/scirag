@@ -5,7 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scirag.service.llm_services import OllamaService, get_llm_service
+from scirag.service.llm_services import (
+    GeminiService,
+    OllamaService,
+    get_llm_service,
+)
 
 
 class TestOllamaService:
@@ -32,9 +36,7 @@ class TestOllamaService:
         response = await service.generate_response(messages)
 
         assert response == "Hello, world!"
-        service.client.chat.assert_called_once_with(
-            model="test-model", messages=messages
-        )
+        service.client.chat.assert_called_once_with(model="test-model", messages=messages)
 
     @pytest.mark.asyncio
     async def test_generate_response_with_multiple_messages(self):
@@ -53,9 +55,7 @@ class TestOllamaService:
         response = await service.generate_response(messages)
 
         assert response == "I'm doing well, thanks!"
-        service.client.chat.assert_called_once_with(
-            model="test-model", messages=messages
-        )
+        service.client.chat.assert_called_once_with(model="test-model", messages=messages)
 
     @pytest.mark.asyncio
     async def test_generate_response_with_system_message(self):
@@ -63,9 +63,7 @@ class TestOllamaService:
         service = OllamaService(host="http://test:11434", model="test-model")
 
         # Mock the client.chat method
-        mock_response = {
-            "message": {"content": "I am a helpful assistant focused on science."}
-        }
+        mock_response = {"message": {"content": "I am a helpful assistant focused on science."}}
         service.client.chat = MagicMock(return_value=mock_response)
 
         messages = [
@@ -75,9 +73,43 @@ class TestOllamaService:
         response = await service.generate_response(messages)
 
         assert response == "I am a helpful assistant focused on science."
-        service.client.chat.assert_called_once_with(
-            model="test-model", messages=messages
+        service.client.chat.assert_called_once_with(model="test-model", messages=messages)
+
+    def test_generate_embeddings_multiple_texts(self):
+        """Test generating embeddings for multiple texts with OllamaService."""
+        service = OllamaService(host="http://test:11434", model="test-model")
+
+        # Mock the client.embed method
+        service.client.embed = MagicMock(
+            side_effect=[
+                {"embeddings": [[0.1, 0.2]]},
+                {"embeddings": [[0.3, 0.4]]},
+                {"embeddings": [[0.5, 0.6]]},
+            ]
         )
+
+        texts = ["text1", "text2", "text3"]
+        embeddings = service.generate_embeddings(texts, "nomic-embed-text")
+
+        assert len(embeddings) == 3
+        assert embeddings[0] == [0.1, 0.2]
+        assert embeddings[1] == [0.3, 0.4]
+        assert embeddings[2] == [0.5, 0.6]
+        assert service.client.embed.call_count == 3
+
+    def test_generate_embeddings_default_model(self):
+        """Test generating embeddings with default model."""
+        service = OllamaService(host="http://test:11434", model="test-model")
+
+        # Mock the client.embed method
+        mock_response = {"embeddings": [[0.1, 0.2, 0.3]]}
+        service.client.embed = MagicMock(return_value=mock_response)
+
+        embeddings = service.generate_embeddings(["test text"])
+
+        assert len(embeddings) == 1
+        # Should use default model "nomic-embed-text"
+        service.client.embed.assert_called_once_with(model="nomic-embed-text", input="test text")
 
 
 class TestGetLLMService:
@@ -91,7 +123,7 @@ class TestGetLLMService:
 
         with patch.dict(
             os.environ,
-            {"OLLAMA_HOST": "http://env-host:11434", "OLLAMA_MODEL": "env-model"},
+            {"OLLAMA_HOST": "http://env-host:11434", "LLM_MODEL": "env-model"},
         ):
             service = get_llm_service()
 
@@ -113,9 +145,7 @@ class TestGetLLMService:
         }
         service = get_llm_service(config)
 
-        mock_ollama_class.assert_called_once_with(
-            host="http://custom:11434", model="custom-model"
-        )
+        mock_ollama_class.assert_called_once_with(host="http://custom:11434", model="custom-model")
         assert service is mock_service
 
     @patch("scirag.service.llm_services.OllamaService")
@@ -126,15 +156,13 @@ class TestGetLLMService:
 
         with patch.dict(
             os.environ,
-            {"OLLAMA_HOST": "http://env-host:11434", "OLLAMA_MODEL": "env-model"},
+            {"OLLAMA_HOST": "http://env-host:11434", "LLM_MODEL": "env-model"},
         ):
             # Only override host, model should come from env
             config = {"host": "http://custom:11434"}
             service = get_llm_service(config)
 
-            mock_ollama_class.assert_called_once_with(
-                host="http://custom:11434", model="env-model"
-            )
+            mock_ollama_class.assert_called_once_with(host="http://custom:11434", model="env-model")
             assert service is mock_service
 
     @patch("scirag.service.llm_services.OllamaService")
@@ -146,9 +174,7 @@ class TestGetLLMService:
         with patch.dict(os.environ, {}, clear=True):
             service = get_llm_service()
 
-            mock_ollama_class.assert_called_once_with(
-                host="http://localhost:11434", model="llama3"
-            )
+            mock_ollama_class.assert_called_once_with(host="http://localhost:11434", model="llama3")
             assert service is mock_service
 
     def test_raises_error_for_unsupported_service(self):
@@ -190,3 +216,174 @@ class TestLLMServiceProtocol:
         # Verify it matches the protocol signature
         # This will be checked by type checkers like mypy
         service_instance: LLMService = service  # noqa: F841
+
+
+class TestGeminiService:
+    """Tests for GeminiService class."""
+
+    @patch("scirag.service.llm_services.genai.Client")
+    def test_init(self, mock_client_class):
+        """Test GeminiService initialization."""
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        service = GeminiService(model="gemini-2.5-flash")
+
+        assert service.model == "gemini-2.5-flash"
+        assert service.client is mock_client
+        mock_client_class.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("scirag.service.llm_services.genai.Client")
+    async def test_generate_response_success(self, mock_client_class):
+        """Test successful response generation."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = "Hello, world!"
+        mock_client.models.generate_content.return_value = mock_response
+        mock_client_class.return_value = mock_client
+
+        service = GeminiService(model="gemini-2.5-flash")
+        messages = [{"role": "user", "content": "Say hello"}]
+        response = await service.generate_response(messages)
+
+        assert response == "Hello, world!"
+        mock_client.models.generate_content.assert_called_once_with(
+            model="gemini-2.5-flash", contents="Say hello"
+        )
+
+    @pytest.mark.asyncio
+    @patch("scirag.service.llm_services.genai.Client")
+    async def test_generate_response_with_multiple_messages(self, mock_client_class):
+        """Test response generation with conversation history."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = "I'm doing well, thanks!"
+        mock_client.models.generate_content.return_value = mock_response
+        mock_client_class.return_value = mock_client
+
+        service = GeminiService(model="gemini-2.5-flash")
+        messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"},
+            {"role": "user", "content": "How are you?"},
+        ]
+        response = await service.generate_response(messages)
+
+        assert response == "I'm doing well, thanks!"
+        # Messages are concatenated
+        expected_contents = "Hello\nHi there!\nHow are you?"
+        mock_client.models.generate_content.assert_called_once_with(
+            model="gemini-2.5-flash", contents=expected_contents
+        )
+
+    @pytest.mark.asyncio
+    @patch("scirag.service.llm_services.genai.Client")
+    async def test_generate_response_with_system_message(self, mock_client_class):
+        """Test response generation with system message."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = "I am a helpful assistant focused on science."
+        mock_client.models.generate_content.return_value = mock_response
+        mock_client_class.return_value = mock_client
+
+        service = GeminiService(model="gemini-2.5-flash")
+        messages = [
+            {"role": "system", "content": "You are a scientific assistant."},
+            {"role": "user", "content": "Who are you?"},
+        ]
+        response = await service.generate_response(messages)
+
+        assert response == "I am a helpful assistant focused on science."
+        expected_contents = "You are a scientific assistant.\nWho are you?"
+        mock_client.models.generate_content.assert_called_once_with(
+            model="gemini-2.5-flash", contents=expected_contents
+        )
+
+    @pytest.mark.asyncio
+    @patch("scirag.service.llm_services.genai.Client")
+    async def test_generate_response_error(self, mock_client_class):
+        """Test error handling in response generation."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = Exception("API Error")
+        mock_client_class.return_value = mock_client
+
+        service = GeminiService(model="gemini-2.5-flash")
+        messages = [{"role": "user", "content": "Say hello"}]
+
+        with pytest.raises(Exception, match="API Error"):
+            await service.generate_response(messages)
+
+
+    @patch("scirag.service.llm_services.genai.Client")
+    def test_generate_embeddings_multiple_texts(self, mock_client_class):
+        """Test generating embeddings for multiple texts with GeminiService."""
+        mock_client = MagicMock()
+
+        # Create mock responses for each text
+        def create_mock_response(values):
+            mock_response = MagicMock()
+            mock_embedding = MagicMock()
+            mock_embedding.values = values
+            mock_response.embeddings = [mock_embedding]
+            return mock_response
+
+        mock_client.models.embed_content.side_effect = [
+            create_mock_response([0.1, 0.2]),
+            create_mock_response([0.3, 0.4]),
+            create_mock_response([0.5, 0.6]),
+        ]
+        mock_client_class.return_value = mock_client
+
+        service = GeminiService(model="gemini-2.5-flash")
+        texts = ["text1", "text2", "text3"]
+        embeddings = service.generate_embeddings(texts, "text-embedding-004")
+
+        assert len(embeddings) == 3
+        assert embeddings[0] == [0.1, 0.2]
+        assert embeddings[1] == [0.3, 0.4]
+        assert embeddings[2] == [0.5, 0.6]
+        assert mock_client.models.embed_content.call_count == 3
+
+
+class TestGetLLMServiceExtended:
+    """Extended tests for get_llm_service factory function with Gemini."""
+
+    @patch("scirag.service.llm_services.GeminiService")
+    def test_creates_gemini_service_with_config(self, mock_gemini_class):
+        """Test creating Gemini service with custom configuration."""
+        mock_service = MagicMock()
+        mock_gemini_class.return_value = mock_service
+
+        config = {
+            "service": "gemini",
+            "model": "gemini-2.0-flash",
+        }
+        service = get_llm_service(config)
+
+        mock_gemini_class.assert_called_once_with(model="gemini-2.0-flash")
+        assert service is mock_service
+
+    @patch("scirag.service.llm_services.GeminiService")
+    def test_creates_gemini_service_with_defaults(self, mock_gemini_class):
+        """Test creating Gemini service with default configuration."""
+        mock_service = MagicMock()
+        mock_gemini_class.return_value = mock_service
+
+        with patch.dict(os.environ, {"GEMINI_MODEL": "gemini-pro"}, clear=False):
+            config = {"service": "gemini"}
+            service = get_llm_service(config)
+
+    @patch("scirag.service.llm_services.GeminiService")
+    def test_creates_gemini_service_with_hardcoded_default(self, mock_gemini_class):
+        """Test Gemini service uses hardcoded default when env var missing."""
+        mock_service = MagicMock()
+        mock_gemini_class.return_value = mock_service
+
+        # Clear GEMINI_MODEL env var if it exists
+        with patch.dict(os.environ, {}, clear=True):
+            config = {"service": "gemini"}
+            service = get_llm_service(config)
+
+            mock_gemini_class.assert_called_once_with(model="gemini-2.5-flash")
+            assert service is mock_service

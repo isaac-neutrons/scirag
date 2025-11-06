@@ -169,12 +169,12 @@ class TestIngestCLI:
         assert result.exit_code == 0
         assert "Using embedding model: custom-model" in result.output
         # Verify ingest_pdf was called with custom model
-        assert mock_ingest.call_args[0][1] == "custom-model"
+        assert mock_ingest.call_args[0][2] == "custom-model"
 
     @patch("scirag.client.cli.database_exists")
     @patch("scirag.client.cli.store_chunks")
     @patch("scirag.client.cli.ingest_pdf")
-    @patch.dict("os.environ", {"OLLAMA_EMBEDDING_MODEL": "env-model"})
+    @patch.dict("os.environ", {"EMBEDDING_MODEL": "env-model"})
     def test_ingest_with_env_model(
         self, mock_ingest, mock_store, mock_db_exists, tmp_path
     ):
@@ -201,7 +201,7 @@ class TestIngestCLI:
         assert result.exit_code == 0
         assert "Using embedding model: env-model" in result.output
         # Verify ingest_pdf was called with env model
-        assert mock_ingest.call_args[0][1] == "env-model"
+        assert mock_ingest.call_args[0][2] == "env-model"
 
     @patch("scirag.client.cli.database_exists")
     @patch("scirag.client.cli.store_chunks")
@@ -227,7 +227,7 @@ class TestIngestCLI:
         ]
         mock_ingest.return_value = mock_chunks
 
-        with patch.dict("os.environ", {"OLLAMA_EMBEDDING_MODEL": "env-model"}):
+        with patch.dict("os.environ", {"EMBEDDING_MODEL": "env-model"}):
             result = self.runner.invoke(
                 ingest, [str(tmp_path), "--embedding-model", "cli-model"]
             )

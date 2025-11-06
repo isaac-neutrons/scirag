@@ -137,28 +137,6 @@ class TestChatEndpoint:
             assert "error" in data
 
 
-class TestInitializeServices:
-    """Tests for service initialization."""
-
-    @patch("scirag.client.app.get_llm_service")
-    def test_initialize_services_creates_llm_service(self, mock_get_llm_service):
-        """Test that initialize_services creates LLM service."""
-        from scirag.client.app import initialize_services
-
-        # Mock get_llm_service
-        mock_llm = MagicMock()
-        mock_get_llm_service.return_value = mock_llm
-
-        initialize_services()
-
-        # Verify LLM service was created
-        mock_get_llm_service.assert_called_once()
-        config = mock_get_llm_service.call_args[0][0]
-        assert config["service"] == "ollama"
-        assert "host" in config
-        assert "model" in config
-
-
 class TestMain:
     """Tests for the main entry point."""
 

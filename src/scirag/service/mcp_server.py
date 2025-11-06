@@ -32,21 +32,12 @@ async def retrieve_document_chunks(query: str, top_k: int = 5) -> list[dict[str,
     similar to the user's query. Returns the top_k most relevant chunks.
     Use this tool to find information to answer a user's question.
     """
-    logger.info("🔌 MCP Tool: retrieve_document_chunks called via MCP protocol")
     logger.debug(f"MCP Tool: Parameters - query='{query[:100]}...', top_k={top_k}")
 
     try:
         results = search_documents(query=query, top_k=top_k)
         logger.info(f"✅ MCP Tool: Returning {len(results)} formatted results to MCP client")
         return results
-    except ConnectionError as e:
-        error_msg = f"Connection error: {e} - Check if Ollama and RavenDB are running"
-        logger.error(f"❌ MCP Tool: {error_msg}", exc_info=True)
-        raise ValueError(error_msg) from e
-    except AttributeError as e:
-        error_msg = f"Attribute error: {e} - This may indicate a version mismatch"
-        logger.error(f"❌ MCP Tool: {error_msg}", exc_info=True)
-        raise ValueError(error_msg) from e
     except Exception as e:
         error_msg = f"Unexpected error: {type(e).__name__}: {e}"
         logger.error(f"❌ MCP Tool: {error_msg}", exc_info=True)
@@ -56,22 +47,7 @@ async def retrieve_document_chunks(query: str, top_k: int = 5) -> list[dict[str,
 def main() -> None:
     """Entry point for the MCP server command-line interface."""
     logger.info("🚀 Starting SciRAG MCP Server...")
-    logger.info("📡 MCP Server: Listening on STDIO transport")
-    logger.info("🔧 MCP Server: Ready to receive tool calls")
-    logger.info("🔌 MCP Server: Tools available:")
-    logger.info("   - retrieve_document_chunks: Search for relevant document chunks")
-    logger.info("   - list_document_sources: List all available documents")
-
-    try:
-        logger.info("✅ MCP Server: Initialization complete")
-        # Use SSE transport for HTTP connectivity
-        mcp.run(transport="sse", host="0.0.0.0", port=8001)
-    except KeyboardInterrupt:
-        logger.info("⚠️  MCP Server: Received shutdown signal")
-        logger.info("👋 MCP Server: Shutting down gracefully")
-    except Exception as e:
-        logger.error(f"❌ MCP Server: Fatal error: {e}", exc_info=True)
-        raise
+    mcp.run(transport="sse", host="0.0.0.0", port=8001)
 
 
 if __name__ == "__main__":

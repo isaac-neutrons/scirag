@@ -44,9 +44,9 @@ def initialize_services():
 
     # Initialize LLM service
     llm_config = {
-        "service": "ollama",
+        "service": os.getenv("LLM_SERVICE", "ollama"),
         "host": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-        "model": os.getenv("OLLAMA_MODEL", "llama3"),
+        "model": os.getenv("LLM_MODEL", "llama3"),
     }
     logger.debug(f"LLM config: {llm_config}")
     llm_service = get_llm_service(llm_config)

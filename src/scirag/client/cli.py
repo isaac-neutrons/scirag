@@ -25,8 +25,7 @@ from scirag.service.database import (
     type=str,
     default=None,
     help=(
-        "Ollama embedding model to use "
-        "(default: from OLLAMA_EMBEDDING_MODEL env or 'nomic-embed-text')"
+        "Ollama embedding model to use (default: from EMBEDDING_MODEL env or 'nomic-embed-text')"
     ),
 )
 @click.option(
@@ -69,7 +68,8 @@ def ingest(directory: Path, embedding_model: str | None, create_database_flag: b
             raise click.Abort()
 
     # Get embedding model
-    model = embedding_model or os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+    llm_service = os.getenv("LLM_SERVICE", "ollama")
+    model = embedding_model or os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
     # Get PDF files
     pdf_files = list(directory.glob("*.pdf"))
@@ -85,7 +85,7 @@ def ingest(directory: Path, embedding_model: str | None, create_database_flag: b
     all_chunks = []
     for pdf_path in pdf_files:
         try:
-            chunks = ingest_pdf(pdf_path, model)
+            chunks = ingest_pdf(pdf_path, llm_service, model)
             all_chunks.extend(chunks)
         except Exception as e:
             click.echo(f"  ✗ Error processing {pdf_path.name}: {e}", err=True)
@@ -150,8 +150,7 @@ def count() -> None:
     type=str,
     default=None,
     help=(
-        "Ollama embedding model to use "
-        "(default: from OLLAMA_EMBEDDING_MODEL env or 'nomic-embed-text')"
+        "Ollama embedding model to use (default: from EMBEDDING_MODEL env or 'nomic-embed-text')"
     ),
 )
 def search(query: str, top_k: int, embedding_model: str | None) -> None:

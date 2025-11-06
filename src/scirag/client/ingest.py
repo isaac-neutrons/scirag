@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import fitz  # PyMuPDF
-import ollama
 from dotenv import load_dotenv
 
 from scirag.service.database import create_document_store, ensure_index_exists
+from scirag.service.llm_services import get_llm_service
 
 # Load environment variables
 load_dotenv()
@@ -89,30 +89,12 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
     return chunks
 
 
-def generate_embeddings(texts: list[str], model: str) -> list[list[float]]:
-    """Generate embeddings for a list of texts using Ollama.
-
-    Args:
-        texts: List of text strings to embed
-        model: Name of the embedding model to use
-
-    Returns:
-        list[list[float]]: List of embedding vectors
-    """
-    embeddings = []
-
-    for text in texts:
-        response = ollama.embed(model=model, input=text)
-        embeddings.append(response["embeddings"][0])
-
-    return embeddings
-
-
-def ingest_pdf(pdf_path: Path, embedding_model: str) -> list[DocumentChunk]:
+def ingest_pdf(pdf_path: Path, llm_service: str, embedding_model: str) -> list[DocumentChunk]:
     """Process a PDF file into document chunks with embeddings.
 
     Args:
         pdf_path: Path to the PDF file
+        llm_service: The LLM service to use for generating embeddings
         embedding_model: Name of the embedding model to use
 
     Returns:
@@ -154,7 +136,9 @@ def ingest_pdf(pdf_path: Path, embedding_model: str) -> list[DocumentChunk]:
 
     # Generate embeddings
     logging.info("  Generating embeddings...")
-    embeddings = generate_embeddings(text_chunks, embedding_model)
+
+    service = get_llm_service({"service": llm_service})
+    embeddings = service.generate_embeddings(text_chunks, embedding_model)
 
     # Create DocumentChunk objects
     document_chunks = []

@@ -88,8 +88,8 @@ OLLAMA_HOST=http://localhost:11434
 LLM_MODEL=gemma3:4b
 EMBEDDING_MODEL=nomic-embed-text
 
-# MCP Server Configuration
-MCP_SERVER_URL=http://localhost:8001/mcp
+# Local MCP Server (this project's vectorstore)
+LOCAL_MCP_SERVER_URL=http://localhost:8001/sse
 
 # RavenDB Configuration
 RAVENDB_URL=http://localhost:8080

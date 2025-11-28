@@ -100,8 +100,8 @@ def ingest(
     click.echo(f"Collection: {collection}")
     click.echo()
 
-    # Initialize MCP client
-    mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8001/sse")
+    # Initialize local MCP client
+    local_mcp_server_url = os.getenv("LOCAL_MCP_SERVER_URL", "http://localhost:8001/sse")
 
     # Process each PDF and collect all chunks
     all_chunks = []
@@ -124,7 +124,7 @@ def ingest(
         try:
             # Use async to call MCP tool
             async def store_via_mcp():
-                mcp_client = Client(mcp_server_url)
+                mcp_client = Client(local_mcp_server_url)
                 async with mcp_client:
                     result = await mcp_client.call_tool(
                         "store_document_chunks",

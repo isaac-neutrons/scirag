@@ -45,12 +45,13 @@ UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 
 # Global service instances
 llm_service = None
-mcp_server_url = None
+local_mcp_server_url = None
+mcp_tool_servers = []
 
 
 def initialize_services():
     """Initialize LLM service and MCP server URL on startup."""
-    global llm_service, mcp_server_url
+    global llm_service, local_mcp_server_url, mcp_tool_servers
     logger.info("🔧 Initializing services...")
 
     # Initialize LLM service
@@ -63,9 +64,18 @@ def initialize_services():
     llm_service = get_llm_service(llm_config)
     logger.info("✅ LLM service initialized successfully")
 
-    # Store MCP server URL (client created per-request)
-    mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8001/sse")
-    logger.info(f"✅ MCP server URL configured: {mcp_server_url}")
+    # Store local MCP server URL (client created per-request)
+    local_mcp_server_url = os.getenv("LOCAL_MCP_SERVER_URL", "http://localhost:8001/sse")
+    logger.info(f"✅ Local MCP server URL configured: {local_mcp_server_url}")
+
+    # Load MCP tool servers for LLM tool use
+    mcp_tool_servers_env = os.getenv("MCP_TOOL_SERVERS", "")
+    if mcp_tool_servers_env:
+        mcp_tool_servers = [url.strip() for url in mcp_tool_servers_env.split(",") if url.strip()]
+        logger.info(f"✅ MCP tool servers configured: {mcp_tool_servers}")
+    else:
+        mcp_tool_servers = []
+        logger.info("ℹ️ No MCP tool servers configured for LLM tool use")
 
 
 def allowed_file(filename: str) -> bool:
@@ -113,7 +123,7 @@ def list_collections_endpoint():
         asyncio.set_event_loop(loop)
         try:
             async def get_collections_via_mcp():
-                client = Client(mcp_server_url)
+                client = Client(local_mcp_server_url)
                 async with client:
                     result = await client.call_tool("list_collections", {})
                     if hasattr(result, "content") and result.content:
@@ -204,7 +214,7 @@ def upload_documents():
                 asyncio.set_event_loop(loop)
                 try:
                     async def store_via_mcp():
-                        client = Client(mcp_server_url)
+                        client = Client(local_mcp_server_url)
                         async with client:
                             result = await client.call_tool(
                                 "store_document_chunks",
@@ -309,7 +319,7 @@ def chat():
             logger.info("📡 Calling MCP retrieval tool...")
 
             async def get_chunks():
-                client = Client(mcp_server_url)
+                client = Client(local_mcp_server_url)
                 async with client:
                     tool_params = {"query": user_query, "top_k": top_k}
                     if collection:
@@ -351,7 +361,9 @@ def chat():
 
             # 4. Call LLM Service to generate response
             logger.info("🤖 Generating response from LLM...")
-            llm_response = loop.run_until_complete(llm_service.generate_response(messages))
+            llm_response = loop.run_until_complete(
+                llm_service.generate_response(messages, mcp_servers=mcp_tool_servers)
+            )
             logger.info("✅ Response generated")
 
             # 5. Return response with sources

@@ -111,6 +111,22 @@ class TestOllamaService:
         # Should use default model "nomic-embed-text"
         service.client.embed.assert_called_once_with(model="nomic-embed-text", input="test text")
 
+    @pytest.mark.asyncio
+    async def test_generate_response_with_mcp_servers(self):
+        """Test response generation with MCP servers parameter."""
+        service = OllamaService(host="http://test:11434", model="test-model")
+
+        # Mock the client.chat method
+        mock_response = {"message": {"content": "Response with tools available"}}
+        service.client.chat = MagicMock(return_value=mock_response)
+
+        messages = [{"role": "user", "content": "Use a tool"}]
+        mcp_servers = ["http://localhost:8001/sse", "http://localhost:8002/sse"]
+        response = await service.generate_response(messages, mcp_servers=mcp_servers)
+
+        assert response == "Response with tools available"
+        service.client.chat.assert_called_once_with(model="test-model", messages=messages)
+
 
 class TestGetLLMService:
     """Tests for get_llm_service factory function."""
@@ -313,6 +329,26 @@ class TestGeminiService:
 
         with pytest.raises(Exception, match="API Error"):
             await service.generate_response(messages)
+
+    @pytest.mark.asyncio
+    @patch("scirag.llm.providers.genai.Client")
+    async def test_generate_response_with_mcp_servers(self, mock_client_class):
+        """Test response generation with MCP servers parameter."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = "Response with tools available"
+        mock_client.models.generate_content.return_value = mock_response
+        mock_client_class.return_value = mock_client
+
+        service = GeminiService(model="gemini-2.5-flash")
+        messages = [{"role": "user", "content": "Use a tool"}]
+        mcp_servers = ["http://localhost:8001/sse", "http://localhost:8002/sse"]
+        response = await service.generate_response(messages, mcp_servers=mcp_servers)
+
+        assert response == "Response with tools available"
+        mock_client.models.generate_content.assert_called_once_with(
+            model="gemini-2.5-flash", contents="Use a tool"
+        )
 
 
     @patch("scirag.llm.providers.genai.Client")

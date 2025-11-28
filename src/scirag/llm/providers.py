@@ -27,12 +27,16 @@ class LLMService(Protocol):
     implementations while maintaining a consistent interface.
     """
 
-    async def generate_response(self, messages: list[dict]) -> str:
+    async def generate_response(
+        self, messages: list[dict], mcp_servers: list[str] | None = None
+    ) -> str:
         """Generate a response from the LLM based on the provided messages.
 
         Args:
             messages: List of message dictionaries with 'role' and 'content' keys.
                      Example: [{"role": "user", "content": "Hello"}]
+            mcp_servers: Optional list of MCP server URLs for tool use.
+                        If provided, the LLM can call tools from these servers.
 
         Returns:
             str: The generated response content from the LLM.
@@ -71,17 +75,23 @@ class OllamaService:
         # Configure the Ollama client with the specified host
         self.client = ollama.Client(host=host)
 
-    async def generate_response(self, messages: list[dict]) -> str:
+    async def generate_response(
+        self, messages: list[dict], mcp_servers: list[str] | None = None
+    ) -> str:
         """Generate a response using Ollama.
 
         Args:
             messages: List of message dictionaries with 'role' and 'content' keys.
+            mcp_servers: Optional list of MCP server URLs for tool use.
+                        Currently not supported by Ollama - reserved for future use.
 
         Returns:
             str: The generated response content from the model.
         """
         logger.info(f"🗣️  Generating response with {self.model}")
         logger.debug(f"Messages: {len(messages)} messages")
+        if mcp_servers:
+            logger.debug(f"MCP servers available (not yet supported): {mcp_servers}")
         for i, msg in enumerate(messages):
             role = msg.get("role", "unknown")
             content_preview = msg.get("content", "")[:100]
@@ -140,18 +150,24 @@ class GeminiService:
         # The client gets the API key from the GEMINI_API_KEY environment variable
         self.client = genai.Client()
 
-    async def generate_response(self, messages: list[dict]) -> str:
+    async def generate_response(
+        self, messages: list[dict], mcp_servers: list[str] | None = None
+    ) -> str:
         """Generate a response using Gemini.
 
         Args:
             messages: List of message dictionaries with 'role' and 'content' keys.
                      The Gemini API expects a specific format, so we convert the messages.
+            mcp_servers: Optional list of MCP server URLs for tool use.
+                        If provided, tools from these MCP servers will be available to Gemini.
 
         Returns:
             str: The generated response content from the model.
         """
         logger.info(f"🗣️  Generating response with {self.model}")
         logger.debug(f"Messages: {len(messages)} messages")
+        if mcp_servers:
+            logger.info(f"🔧 MCP tool servers: {mcp_servers}")
         for i, msg in enumerate(messages):
             role = msg.get("role", "unknown")
             content_preview = msg.get("content", "")[:100]

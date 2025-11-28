@@ -17,8 +17,7 @@ from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
 from scirag.client.ingest import extract_chunks_from_pdf
-from scirag.service.database import get_collections
-from scirag.service.llm_services import get_llm_service
+from scirag.llm.providers import get_llm_service
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "DEBUG")
@@ -102,7 +101,7 @@ def upload_page():
 
 
 @app.route("/api/collections", methods=["GET"])
-def list_collections():
+def list_collections_endpoint():
     """Get list of existing collection names.
 
     Returns:
@@ -110,7 +109,23 @@ def list_collections():
     """
     logger.info("📂 Fetching collection names")
     try:
-        collections = get_collections()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            async def get_collections_via_mcp():
+                client = Client(mcp_server_url)
+                async with client:
+                    result = await client.call_tool("list_collections", {})
+                    if hasattr(result, "content") and result.content:
+                        if isinstance(result.content, list):
+                            return json.loads(result.content[0].text)
+                        return result.content
+                    return result
+
+            collections = loop.run_until_complete(get_collections_via_mcp())
+        finally:
+            loop.close()
+
         logger.info(f"✅ Found {len(collections)} collections")
         return jsonify({"success": True, "collections": collections})
     except Exception as e:

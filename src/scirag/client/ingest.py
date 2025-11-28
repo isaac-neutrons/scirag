@@ -1,42 +1,14 @@
-"""PDF ingestion pipeline for extracting, chunking, and storing documents."""
+"""PDF ingestion pipeline for extracting and chunking documents."""
 
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 
 import fitz  # PyMuPDF
 from dotenv import load_dotenv
 
-from scirag.service.database import create_document_store, ensure_index_exists
-from scirag.service.llm_services import get_llm_service
-
 # Load environment variables
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
-
-
-@dataclass
-class DocumentChunk:
-    """Represents a chunk of text from a document with its embedding.
-
-    Attributes:
-        id: Unique identifier for the chunk (format: filename_chunk_index)
-        source_filename: Original PDF filename
-        chunk_index: int of this chunk in the document
-        text: The text content of the chunk
-        embedding: Vector embedding of the text
-        metadata: Dictionary containing file metadata (creation_date, modification_date,
-                 file_size, page_count, ingestion_date)
-        collection: Name of the collection this chunk belongs to
-    """
-
-    id: str
-    source_filename: str
-    chunk_index: int
-    text: str
-    embedding: list[float]
-    metadata: dict[str, str | int | float]
-    collection: str = "DocumentChunks"
 
 
 def extract_text_from_pdf(pdf_path: Path) -> str:
@@ -157,114 +129,3 @@ def extract_chunks_from_pdf(
 
     logging.info(f"  ✓ Extracted {len(chunks)} chunks from {filename}")
     return chunks
-
-
-def ingest_pdf(
-    pdf_path: Path,
-    llm_service: str,
-    embedding_model: str,
-    collection: str = "DocumentChunks",
-) -> list[DocumentChunk]:
-    """Process a PDF file into document chunks with embeddings.
-
-    Args:
-        pdf_path: Path to the PDF file
-        llm_service: The LLM service to use for generating embeddings
-        embedding_model: Name of the embedding model to use
-        collection: Name of the collection to store chunks in (default: DocumentChunks)
-
-    Returns:
-        list[DocumentChunk]: List of document chunks with embeddings
-    """
-    logging.info(f"Processing {pdf_path.name}...")
-
-    # Extract text
-    text = extract_text_from_pdf(pdf_path)
-    logging.info(f"  Extracted {len(text)} characters")
-
-    # Extract file metadata
-    file_stat = pdf_path.stat()
-    doc = fitz.open(pdf_path)
-
-    metadata = {
-        "file_size": file_stat.st_size,
-        "modification_date": file_stat.st_mtime,
-        "creation_date": file_stat.st_ctime,
-        "page_count": len(doc),
-        "ingestion_date": file_stat.st_mtime,  # Using mtime as ingestion timestamp
-    }
-
-    # Add PDF metadata if available
-    pdf_metadata = doc.metadata
-    if pdf_metadata:
-        if pdf_metadata.get("title"):
-            metadata["title"] = pdf_metadata["title"]
-        if pdf_metadata.get("author"):
-            metadata["author"] = pdf_metadata["author"]
-        if pdf_metadata.get("creationDate"):
-            metadata["pdf_creation_date"] = pdf_metadata["creationDate"]
-
-    doc.close()
-
-    # Chunk text
-    text_chunks = chunk_text(text)
-    logging.info(f"  Created {len(text_chunks)} chunks")
-
-    # Generate embeddings
-    logging.info("  Generating embeddings...")
-
-    service = get_llm_service({"service": llm_service})
-    embeddings = service.generate_embeddings(text_chunks, embedding_model)
-
-    # Create DocumentChunk objects
-    document_chunks = []
-    filename = pdf_path.name
-
-    for idx, (text_content, embedding) in enumerate(zip(text_chunks, embeddings)):
-        doc_chunk = DocumentChunk(
-            id=f"{filename}_chunk_{idx}",
-            source_filename=filename,
-            chunk_index=idx,
-            text=text_content,
-            embedding=embedding,
-            metadata=metadata.copy(),
-            collection=collection,
-        )
-        document_chunks.append(doc_chunk)
-
-    logging.info(f"  ✓ Processed {filename}")
-    return document_chunks
-
-
-def store_chunks(chunks: list[DocumentChunk], collection: str | None = None) -> None:
-    """Store document chunks in RavenDB.
-
-    The DocumentChunk dataclass objects are stored directly in RavenDB,
-    which will automatically serialize them to JSON. The collection name
-    is set in the document's @metadata.@collection field.
-
-    Args:
-        chunks: List of DocumentChunk objects to store
-        collection: Optional collection name override (uses chunk.collection if not provided)
-    """
-    store = create_document_store()
-
-    # Ensure the index exists
-    ensure_index_exists(store)
-
-    # Store chunks in a single session
-    with store.open_session() as session:
-        for chunk in chunks:
-            # Determine collection name
-            collection_name = collection or chunk.collection or "DocumentChunks"
-
-            # Store the DocumentChunk object
-            session.store(chunk, chunk.id)
-
-            # Set the collection in document metadata
-            metadata = session.advanced.get_metadata_for(chunk)
-            metadata["@collection"] = collection_name
-
-        session.save_changes()
-
-    store.close()

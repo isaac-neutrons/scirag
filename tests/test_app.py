@@ -180,10 +180,15 @@ class TestUploadPage:
 class TestCollectionsEndpoint:
     """Tests for the /api/collections endpoint."""
 
-    @patch("scirag.client.app.get_collections")
-    def test_collections_returns_list(self, mock_get_collections):
+    @patch("scirag.client.app.asyncio")
+    @patch("scirag.client.app.Client")
+    def test_collections_returns_list(self, mock_client_class, mock_asyncio):
         """Test that collections endpoint returns list of collections."""
-        mock_get_collections.return_value = ["papers", "reports", "research"]
+        # Mock asyncio event loop
+        mock_loop = MagicMock()
+        mock_asyncio.new_event_loop.return_value = mock_loop
+        mock_loop.run_until_complete.return_value = ["papers", "reports", "research"]
+
         with app.test_client() as client:
             response = client.get("/api/collections")
             assert response.status_code == 200
@@ -191,10 +196,15 @@ class TestCollectionsEndpoint:
             assert data["success"] is True
             assert data["collections"] == ["papers", "reports", "research"]
 
-    @patch("scirag.client.app.get_collections")
-    def test_collections_returns_empty_list(self, mock_get_collections):
+    @patch("scirag.client.app.asyncio")
+    @patch("scirag.client.app.Client")
+    def test_collections_returns_empty_list(self, mock_client_class, mock_asyncio):
         """Test that collections endpoint returns empty list when no collections exist."""
-        mock_get_collections.return_value = []
+        # Mock asyncio event loop
+        mock_loop = MagicMock()
+        mock_asyncio.new_event_loop.return_value = mock_loop
+        mock_loop.run_until_complete.return_value = []
+
         with app.test_client() as client:
             response = client.get("/api/collections")
             assert response.status_code == 200

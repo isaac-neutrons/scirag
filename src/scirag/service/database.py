@@ -17,7 +17,7 @@ from ravendb.documents.indexes.vector.options import VectorOptions
 from ravendb.documents.operations.indexes import GetIndexNamesOperation, PutIndexesOperation
 from ravendb.serverwide.operations.common import DeleteDatabaseOperation
 
-from scirag.service.llm_services import get_llm_service
+from scirag.llm.providers import get_llm_service
 
 # Load environment variables
 load_dotenv()

@@ -7,7 +7,7 @@ from typing import Any
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-from scirag.service.database import search_documents, store_chunks_with_embeddings
+from scirag.service.database import get_collections, search_documents, store_chunks_with_embeddings
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "DEBUG")
@@ -138,6 +138,29 @@ def main() -> None:
     """Entry point for the MCP server command-line interface."""
     logger.info("🚀 Starting SciRAG MCP Server...")
     mcp.run(transport="sse", host="0.0.0.0", port=8001)
+
+
+@mcp.tool()
+async def list_collections() -> list[str]:
+    """
+    Lists all available document collections in the vectorstore.
+
+    Use this tool to discover what collections exist before querying
+    or storing documents.
+
+    Returns:
+        List of collection names as strings
+    """
+    logger.info("📂 MCP Tool list_collections: Fetching available collections")
+
+    try:
+        collections = get_collections()
+        logger.info(f"✅ MCP Tool: Found {len(collections)} collections")
+        return collections
+    except Exception as e:
+        error_msg = f"Error fetching collections: {type(e).__name__}: {e}"
+        logger.error(f"❌ MCP Tool: {error_msg}", exc_info=True)
+        return []
 
 
 if __name__ == "__main__":

@@ -4,43 +4,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from scirag.client.ingest import (
-    DocumentChunk,
     chunk_text,
     extract_text_from_pdf,
-    ingest_pdf,
-    store_chunks,
+    extract_chunks_from_pdf,
 )
-
-
-class TestDocumentChunk:
-    """Tests for DocumentChunk dataclass."""
-
-    def test_document_chunk_creation(self):
-        """Test creating a DocumentChunk instance."""
-        metadata = {
-            "file_size": 12345,
-            "modification_date": 1234567890.0,
-            "creation_date": 1234567890.0,
-            "page_count": 5,
-            "ingestion_date": 1234567890.0,
-        }
-
-        chunk = DocumentChunk(
-            id="test.pdf_chunk_0",
-            source_filename="test.pdf",
-            chunk_index=0,
-            text="Sample text",
-            embedding=[0.1, 0.2, 0.3],
-            metadata=metadata,
-        )
-
-        assert chunk.id == "test.pdf_chunk_0"
-        assert chunk.source_filename == "test.pdf"
-        assert chunk.chunk_index == 0
-        assert chunk.text == "Sample text"
-        assert chunk.embedding == [0.1, 0.2, 0.3]
-        assert chunk.metadata["file_size"] == 12345
-        assert chunk.metadata["page_count"] == 5
 
 
 class TestExtractTextFromPDF:
@@ -128,61 +95,46 @@ class TestChunkText:
         assert all(len(chunk.split()) <= 100 for chunk in chunks)
 
 
-class TestStoreChunks:
-    """Tests for store_chunks function."""
+class TestExtractChunksFromPDF:
+    """Tests for extract_chunks_from_pdf function."""
 
-    @patch("scirag.client.ingest.ensure_index_exists")
-    @patch("scirag.client.ingest.create_document_store")
-    def test_store_chunks(self, mock_create_store, mock_ensure_index):
-        """Test storing chunks in RavenDB."""
-        mock_store = MagicMock()
-        mock_session = MagicMock()
-        mock_store.open_session.return_value.__enter__.return_value = mock_session
-        mock_create_store.return_value = mock_store
+    @patch("scirag.client.ingest.fitz.open")
+    @patch("scirag.client.ingest.chunk_text")
+    @patch("scirag.client.ingest.extract_text_from_pdf")
+    def test_extract_chunks_from_pdf(
+        self, mock_extract_text, mock_chunk_text, mock_fitz_open
+    ):
+        """Test extracting chunks from a PDF file."""
+        # Mock the PDF document
+        mock_doc = MagicMock()
+        mock_doc.__len__ = MagicMock(return_value=5)
+        mock_doc.metadata = {"title": "Test Title", "author": "Test Author"}
+        mock_fitz_open.return_value = mock_doc
 
-        metadata = {
-            "file_size": 12345,
-            "modification_date": 1234567890.0,
-            "creation_date": 1234567890.0,
-            "page_count": 5,
-            "ingestion_date": 1234567890.0,
-        }
+        # Mock text extraction and chunking
+        mock_extract_text.return_value = "Sample text from PDF"
+        mock_chunk_text.return_value = ["Chunk 1", "Chunk 2"]
 
-        chunks = [
-            DocumentChunk(
-                id="test.pdf_chunk_0",
-                source_filename="test.pdf",
-                chunk_index=0,
-                text="chunk text",
-                embedding=[0.1, 0.2, 0.3],
-                metadata=metadata,
-            )
-        ]
+        # Create a mock path with stat
+        mock_path = MagicMock(spec=Path)
+        mock_path.name = "test.pdf"
+        mock_stat = MagicMock()
+        mock_stat.st_size = 12345
+        mock_stat.st_mtime = 1234567890.0
+        mock_stat.st_ctime = 1234567890.0
+        mock_path.stat.return_value = mock_stat
 
-        store_chunks(chunks)
+        chunks = extract_chunks_from_pdf(mock_path, collection="TestCollection")
 
-        # Verify store was created and closed
-        mock_create_store.assert_called_once()
-        mock_ensure_index.assert_called_once_with(mock_store)
-        mock_store.close.assert_called_once()
+        assert len(chunks) == 2
+        assert chunks[0]["text"] == "Chunk 1"
+        assert chunks[0]["source_filename"] == "test.pdf"
+        assert chunks[0]["chunk_index"] == 0
+        assert chunks[0]["metadata"]["file_size"] == 12345
+        assert chunks[0]["metadata"]["page_count"] == 5
+        assert chunks[0]["metadata"]["title"] == "Test Title"
+        assert chunks[0]["metadata"]["author"] == "Test Author"
 
-        # Verify session operations
-        mock_session.store.assert_called_once()
-        mock_session.save_changes.assert_called_once()
-
-        # Verify the DocumentChunk object was stored directly
-        call_args = mock_session.store.call_args
-        stored_chunk = call_args[0][0]
-        stored_id = call_args[0][1]
-
-        # Verify it's the DocumentChunk object
-        assert isinstance(stored_chunk, DocumentChunk)
-        assert stored_chunk.id == "test.pdf_chunk_0"
-        assert stored_chunk.source_filename == "test.pdf"
-        assert stored_chunk.chunk_index == 0
-        assert stored_chunk.text == "chunk text"
-        assert stored_chunk.embedding == [0.1, 0.2, 0.3]
-        assert stored_chunk.metadata["file_size"] == 12345
-        assert stored_chunk.metadata["page_count"] == 5
-        assert stored_id == "test.pdf_chunk_0"
+        assert chunks[1]["text"] == "Chunk 2"
+        assert chunks[1]["chunk_index"] == 1
 

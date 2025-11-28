@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scirag.service.llm_services import (
+from scirag.llm.providers import (
     GeminiService,
     OllamaService,
     get_llm_service,
@@ -115,7 +115,7 @@ class TestOllamaService:
 class TestGetLLMService:
     """Tests for get_llm_service factory function."""
 
-    @patch("scirag.service.llm_services.OllamaService")
+    @patch("scirag.llm.providers.OllamaService")
     def test_creates_ollama_service_with_defaults(self, mock_ollama_class):
         """Test creating Ollama service with default configuration."""
         mock_service = MagicMock()
@@ -132,7 +132,7 @@ class TestGetLLMService:
             )
             assert service is mock_service
 
-    @patch("scirag.service.llm_services.OllamaService")
+    @patch("scirag.llm.providers.OllamaService")
     def test_creates_ollama_service_with_custom_config(self, mock_ollama_class):
         """Test creating Ollama service with custom configuration."""
         mock_service = MagicMock()
@@ -148,7 +148,7 @@ class TestGetLLMService:
         mock_ollama_class.assert_called_once_with(host="http://custom:11434", model="custom-model")
         assert service is mock_service
 
-    @patch("scirag.service.llm_services.OllamaService")
+    @patch("scirag.llm.providers.OllamaService")
     def test_creates_ollama_service_with_partial_config(self, mock_ollama_class):
         """Test creating Ollama service with partial configuration."""
         mock_service = MagicMock()
@@ -165,7 +165,7 @@ class TestGetLLMService:
             mock_ollama_class.assert_called_once_with(host="http://custom:11434", model="env-model")
             assert service is mock_service
 
-    @patch("scirag.service.llm_services.OllamaService")
+    @patch("scirag.llm.providers.OllamaService")
     def test_uses_hardcoded_defaults_when_no_env(self, mock_ollama_class):
         """Test that hardcoded defaults are used when env vars are missing."""
         mock_service = MagicMock()
@@ -184,7 +184,7 @@ class TestGetLLMService:
         with pytest.raises(ValueError, match="Unsupported service type: unsupported"):
             get_llm_service(config)
 
-    @patch("scirag.service.llm_services.OllamaService")
+    @patch("scirag.llm.providers.OllamaService")
     def test_default_service_type_is_ollama(self, mock_ollama_class):
         """Test that 'ollama' is the default service type."""
         mock_service = MagicMock()
@@ -205,7 +205,7 @@ class TestLLMServiceProtocol:
     @pytest.mark.asyncio
     async def test_ollama_service_implements_protocol(self):
         """Test that OllamaService implements the LLMService protocol."""
-        from scirag.service.llm_services import LLMService
+        from scirag.llm.providers import LLMService
 
         service = OllamaService(host="http://test:11434", model="test-model")
 
@@ -221,7 +221,7 @@ class TestLLMServiceProtocol:
 class TestGeminiService:
     """Tests for GeminiService class."""
 
-    @patch("scirag.service.llm_services.genai.Client")
+    @patch("scirag.llm.providers.genai.Client")
     def test_init(self, mock_client_class):
         """Test GeminiService initialization."""
         mock_client = MagicMock()
@@ -234,7 +234,7 @@ class TestGeminiService:
         mock_client_class.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("scirag.service.llm_services.genai.Client")
+    @patch("scirag.llm.providers.genai.Client")
     async def test_generate_response_success(self, mock_client_class):
         """Test successful response generation."""
         mock_client = MagicMock()
@@ -253,7 +253,7 @@ class TestGeminiService:
         )
 
     @pytest.mark.asyncio
-    @patch("scirag.service.llm_services.genai.Client")
+    @patch("scirag.llm.providers.genai.Client")
     async def test_generate_response_with_multiple_messages(self, mock_client_class):
         """Test response generation with conversation history."""
         mock_client = MagicMock()
@@ -278,7 +278,7 @@ class TestGeminiService:
         )
 
     @pytest.mark.asyncio
-    @patch("scirag.service.llm_services.genai.Client")
+    @patch("scirag.llm.providers.genai.Client")
     async def test_generate_response_with_system_message(self, mock_client_class):
         """Test response generation with system message."""
         mock_client = MagicMock()
@@ -301,7 +301,7 @@ class TestGeminiService:
         )
 
     @pytest.mark.asyncio
-    @patch("scirag.service.llm_services.genai.Client")
+    @patch("scirag.llm.providers.genai.Client")
     async def test_generate_response_error(self, mock_client_class):
         """Test error handling in response generation."""
         mock_client = MagicMock()
@@ -315,7 +315,7 @@ class TestGeminiService:
             await service.generate_response(messages)
 
 
-    @patch("scirag.service.llm_services.genai.Client")
+    @patch("scirag.llm.providers.genai.Client")
     def test_generate_embeddings_multiple_texts(self, mock_client_class):
         """Test generating embeddings for multiple texts with GeminiService."""
         mock_client = MagicMock()
@@ -349,7 +349,7 @@ class TestGeminiService:
 class TestGetLLMServiceExtended:
     """Extended tests for get_llm_service factory function with Gemini."""
 
-    @patch("scirag.service.llm_services.GeminiService")
+    @patch("scirag.llm.providers.GeminiService")
     def test_creates_gemini_service_with_config(self, mock_gemini_class):
         """Test creating Gemini service with custom configuration."""
         mock_service = MagicMock()
@@ -364,7 +364,7 @@ class TestGetLLMServiceExtended:
         mock_gemini_class.assert_called_once_with(model="gemini-2.0-flash")
         assert service is mock_service
 
-    @patch("scirag.service.llm_services.GeminiService")
+    @patch("scirag.llm.providers.GeminiService")
     def test_creates_gemini_service_with_defaults(self, mock_gemini_class):
         """Test creating Gemini service with default configuration."""
         mock_service = MagicMock()
@@ -374,7 +374,7 @@ class TestGetLLMServiceExtended:
             config = {"service": "gemini"}
             service = get_llm_service(config)
 
-    @patch("scirag.service.llm_services.GeminiService")
+    @patch("scirag.llm.providers.GeminiService")
     def test_creates_gemini_service_with_hardcoded_default(self, mock_gemini_class):
         """Test Gemini service uses hardcoded default when env var missing."""
         mock_service = MagicMock()

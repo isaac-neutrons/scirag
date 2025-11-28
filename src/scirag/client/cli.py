@@ -1,11 +1,15 @@
 """Command-line interface for SciRAG using Click."""
 
+import asyncio
+import json
 import os
 from pathlib import Path
 
 import click
+from dotenv import load_dotenv
+from fastmcp import Client
 
-from scirag.client.ingest import ingest_pdf, store_chunks
+from scirag.client.ingest import extract_chunks_from_pdf
 from scirag.service.database import (
     count_documents,
     create_database,
@@ -13,6 +17,9 @@ from scirag.service.database import (
     delete_database,
     search_documents,
 )
+
+# Load environment variables
+load_dotenv()
 
 
 @click.command()
@@ -79,8 +86,7 @@ def ingest(
             click.echo("\nOr ensure RavenDB is running and the database exists.", err=True)
             raise click.Abort()
 
-    # Get embedding model
-    llm_service = os.getenv("LLM_SERVICE", "ollama")
+    # Get embedding model for display purposes
     model = embedding_model or os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
     # Get PDF files
@@ -94,23 +100,54 @@ def ingest(
     click.echo(f"Collection: {collection}")
     click.echo()
 
-    # Process each PDF
+    # Initialize MCP client
+    mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8001/sse")
+
+    # Process each PDF and collect all chunks
     all_chunks = []
     for pdf_path in pdf_files:
         try:
-            chunks = ingest_pdf(pdf_path, llm_service, model, collection)
+            chunks = extract_chunks_from_pdf(pdf_path, collection)
             all_chunks.extend(chunks)
+            click.echo(f"  ✓ Extracted {len(chunks)} chunks from {pdf_path.name}")
         except Exception as e:
             click.echo(f"  ✗ Error processing {pdf_path.name}: {e}", err=True)
             continue
 
-    # Store all chunks
+    # Store all chunks via MCP tool
     if all_chunks:
         click.echo()
-        click.echo(f"Storing {len(all_chunks)} chunks in RavenDB (collection: '{collection}')...")
+        click.echo(
+            f"Storing {len(all_chunks)} chunks via MCP server "
+            f"(collection: '{collection}')..."
+        )
         try:
-            store_chunks(all_chunks, collection)
-            click.echo("✓ Ingestion complete!")
+            # Use async to call MCP tool
+            async def store_via_mcp():
+                mcp_client = Client(mcp_server_url)
+                async with mcp_client:
+                    result = await mcp_client.call_tool(
+                        "store_document_chunks",
+                        {"chunks": all_chunks, "collection": collection}
+                    )
+                    if hasattr(result, "content") and result.content:
+                        if isinstance(result.content, list):
+                            return json.loads(result.content[0].text)
+                        return result.content
+                    return result
+
+            store_result = asyncio.run(store_via_mcp())
+
+            if store_result.get("success"):
+                click.echo(
+                    f"✓ Ingestion complete! "
+                    f"Stored {store_result.get('chunks_stored', 0)} chunks."
+                )
+            else:
+                error_msg = store_result.get("message", "Unknown error")
+                click.echo(f"\n✗ Error storing chunks: {error_msg}", err=True)
+                raise click.Abort()
+
         except Exception as e:
             # Check if it's a database not found error
             error_msg = str(e).lower()

@@ -86,15 +86,17 @@ class TestChatEndpoint:
             assert "error" in data
             assert "query" in data["error"]
 
-    @patch("scirag.client.app.mcp_client")
-    def test_chat_retrieval_error_handling(self, mock_mcp_client):
+    @patch("scirag.client.app.Client")
+    def test_chat_retrieval_error_handling(self, mock_client_class):
         """Test error handling when document retrieval fails."""
-
         # Mock MCP client to raise an error
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
         async def mock_call_tool(tool_name, params):
             raise Exception("Retrieval failed")
 
-        mock_mcp_client.__aenter__.return_value.call_tool = mock_call_tool
+        mock_client.__aenter__.return_value.call_tool = mock_call_tool
 
         with app.test_client() as client:
             response = client.post(
@@ -107,18 +109,20 @@ class TestChatEndpoint:
             data = json.loads(response.data)
             assert "error" in data
 
-    @patch("scirag.client.app.mcp_client")
+    @patch("scirag.client.app.Client")
     @patch("scirag.client.app.llm_service")
-    def test_chat_llm_error_handling(self, mock_llm_service, mock_mcp_client):
+    def test_chat_llm_error_handling(self, mock_llm_service, mock_client_class):
         """Test error handling when LLM call fails."""
         # Mock MCP client call_tool
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
         mock_result = MagicMock()
         mock_result.content = [MagicMock(text=json.dumps([]))]
 
         async def mock_call_tool(tool_name, params):
             return mock_result
 
-        mock_mcp_client.__aenter__.return_value.call_tool = mock_call_tool
+        mock_client.__aenter__.return_value.call_tool = mock_call_tool
 
         # Mock LLM service to raise an error
         mock_llm_service.generate_response = AsyncMock(
@@ -223,15 +227,23 @@ class TestUploadEndpoint:
             data = json.loads(response.data)
             assert data["success"] is False
 
-    @patch("scirag.client.app.store_chunks")
-    @patch("scirag.client.app.ingest_pdf")
-    def test_upload_pdf_success(self, mock_ingest, mock_store):
+    @patch("scirag.client.app.asyncio")
+    @patch("scirag.client.app.extract_chunks_from_pdf")
+    def test_upload_pdf_success(self, mock_extract, mock_asyncio):
         """Test successful PDF upload and ingestion."""
         from io import BytesIO
 
-        # Mock the ingest function to return chunks
-        mock_chunks = [MagicMock(id="test_chunk_0")]
-        mock_ingest.return_value = mock_chunks
+        # Mock the extract function to return chunks (dicts, not objects)
+        mock_chunks = [{"id": "test_chunk_0", "text": "test content"}]
+        mock_extract.return_value = mock_chunks
+
+        # Mock asyncio.new_event_loop and run_until_complete
+        mock_loop = MagicMock()
+        mock_asyncio.new_event_loop.return_value = mock_loop
+        mock_loop.run_until_complete.return_value = {
+            "success": True,
+            "chunks_stored": 1
+        }
 
         with app.test_client() as client:
             # Create a fake PDF file
@@ -273,12 +285,12 @@ class TestUploadEndpoint:
             assert result["success"] is False
             assert "not allowed" in result["details"][0]["error"]
 
-    @patch("scirag.client.app.ingest_pdf")
-    def test_upload_handles_ingest_error(self, mock_ingest):
+    @patch("scirag.client.app.extract_chunks_from_pdf")
+    def test_upload_handles_ingest_error(self, mock_extract):
         """Test that ingest errors are handled gracefully."""
         from io import BytesIO
 
-        mock_ingest.side_effect = Exception("Ingest failed")
+        mock_extract.side_effect = Exception("Ingest failed")
 
         with app.test_client() as client:
             data = {

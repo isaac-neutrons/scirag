@@ -91,6 +91,74 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
     return chunks
 
 
+def extract_chunks_from_pdf(
+    pdf_path: Path,
+    collection: str = "DocumentChunks",
+) -> list[dict]:
+    """Extract text chunks from a PDF file without generating embeddings.
+
+    This function extracts text, chunks it, and returns chunk dictionaries
+    ready to be sent to the MCP server for embedding generation and storage.
+
+    Args:
+        pdf_path: Path to the PDF file
+        collection: Name of the collection to store chunks in (default: DocumentChunks)
+
+    Returns:
+        list[dict]: List of chunk dictionaries with text, source_filename,
+                   chunk_index, and metadata
+    """
+    logging.info(f"Extracting chunks from {pdf_path.name}...")
+
+    # Extract text
+    text = extract_text_from_pdf(pdf_path)
+    logging.info(f"  Extracted {len(text)} characters")
+
+    # Extract file metadata
+    file_stat = pdf_path.stat()
+    doc = fitz.open(pdf_path)
+
+    metadata = {
+        "file_size": file_stat.st_size,
+        "modification_date": file_stat.st_mtime,
+        "creation_date": file_stat.st_ctime,
+        "page_count": len(doc),
+        "ingestion_date": file_stat.st_mtime,
+    }
+
+    # Add PDF metadata if available
+    pdf_metadata = doc.metadata
+    if pdf_metadata:
+        if pdf_metadata.get("title"):
+            metadata["title"] = pdf_metadata["title"]
+        if pdf_metadata.get("author"):
+            metadata["author"] = pdf_metadata["author"]
+        if pdf_metadata.get("creationDate"):
+            metadata["pdf_creation_date"] = pdf_metadata["creationDate"]
+
+    doc.close()
+
+    # Chunk text
+    text_chunks = chunk_text(text)
+    logging.info(f"  Created {len(text_chunks)} chunks")
+
+    # Create chunk dictionaries (without embeddings)
+    chunks = []
+    filename = pdf_path.name
+
+    for idx, text_content in enumerate(text_chunks):
+        chunk = {
+            "text": text_content,
+            "source_filename": filename,
+            "chunk_index": idx,
+            "metadata": metadata.copy(),
+        }
+        chunks.append(chunk)
+
+    logging.info(f"  ✓ Extracted {len(chunks)} chunks from {filename}")
+    return chunks
+
+
 def ingest_pdf(
     pdf_path: Path,
     llm_service: str,

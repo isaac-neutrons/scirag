@@ -16,7 +16,7 @@ from fastmcp import Client
 from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
-from scirag.client.ingest import ingest_pdf, store_chunks
+from scirag.client.ingest import extract_chunks_from_pdf
 from scirag.service.database import get_collections
 from scirag.service.llm_services import get_llm_service
 
@@ -46,12 +46,12 @@ UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 
 # Global service instances
 llm_service = None
-mcp_client = None
+mcp_server_url = None
 
 
 def initialize_services():
-    """Initialize LLM service and MCP client on startup."""
-    global llm_service, mcp_client
+    """Initialize LLM service and MCP server URL on startup."""
+    global llm_service, mcp_server_url
     logger.info("🔧 Initializing services...")
 
     # Initialize LLM service
@@ -64,10 +64,9 @@ def initialize_services():
     llm_service = get_llm_service(llm_config)
     logger.info("✅ LLM service initialized successfully")
 
-    # Initialize MCP client with server URL
+    # Store MCP server URL (client created per-request)
     mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8001/sse")
-    mcp_client = Client(mcp_server_url)
-    logger.info(f"✅ MCP client initialized successfully (server: {mcp_server_url})")
+    logger.info(f"✅ MCP server URL configured: {mcp_server_url}")
 
 
 def allowed_file(filename: str) -> bool:
@@ -159,10 +158,6 @@ def upload_documents():
         logger.info(f"📁 Collection: {collection}")
         logger.info(f"📄 Files received: {len(files)}")
 
-        # Get LLM service and embedding model from environment
-        llm_service_name = os.getenv("LLM_SERVICE", "ollama")
-        embedding_model = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
-
         results = []
         success_count = 0
 
@@ -185,20 +180,50 @@ def upload_documents():
                 file.save(filepath)
                 logger.info(f"💾 Saved file: {filepath}")
 
-                # Ingest the PDF
-                chunks = ingest_pdf(filepath, llm_service_name, embedding_model, collection)
-                logger.info(f"📊 Generated {len(chunks)} chunks from {filename}")
+                # Extract chunks from PDF (without embeddings)
+                chunks = extract_chunks_from_pdf(filepath, collection)
+                logger.info(f"📊 Extracted {len(chunks)} chunks from {filename}")
 
-                # Store chunks in the database with collection metadata
-                store_chunks(chunks, collection)
-                logger.info(f"✅ Stored chunks for {filename} in collection '{collection}'")
+                # Store chunks via MCP tool (handles embedding generation)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    async def store_via_mcp():
+                        client = Client(mcp_server_url)
+                        async with client:
+                            result = await client.call_tool(
+                                "store_document_chunks",
+                                {"chunks": chunks, "collection": collection}
+                            )
+                            if hasattr(result, "content") and result.content:
+                                if isinstance(result.content, list):
+                                    return json.loads(result.content[0].text)
+                                return result.content
+                            return result
 
-                results.append({
-                    "filename": filename,
-                    "chunks": len(chunks),
-                    "status": "success"
-                })
-                success_count += 1
+                    store_result = loop.run_until_complete(store_via_mcp())
+                finally:
+                    loop.close()
+
+                if store_result.get("success"):
+                    logger.info(
+                        f"✅ Stored {store_result.get('chunks_stored', 0)} chunks "
+                        f"for {filename} in collection '{collection}'"
+                    )
+                    results.append({
+                        "filename": filename,
+                        "chunks": store_result.get("chunks_stored", len(chunks)),
+                        "status": "success"
+                    })
+                    success_count += 1
+                else:
+                    error_msg = store_result.get("message", "Unknown error")
+                    logger.error(f"❌ Failed to store chunks: {error_msg}")
+                    results.append({
+                        "filename": filename,
+                        "status": "error",
+                        "error": error_msg
+                    })
 
                 # Clean up temporary file
                 filepath.unlink()
@@ -269,11 +294,12 @@ def chat():
             logger.info("📡 Calling MCP retrieval tool...")
 
             async def get_chunks():
-                async with mcp_client:
+                client = Client(mcp_server_url)
+                async with client:
                     tool_params = {"query": user_query, "top_k": top_k}
                     if collection:
                         tool_params["collection"] = collection
-                    result = await mcp_client.call_tool(
+                    result = await client.call_tool(
                         "retrieve_document_chunks", tool_params
                     )
                     # Extract content from CallToolResult

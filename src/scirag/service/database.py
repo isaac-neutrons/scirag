@@ -399,3 +399,87 @@ def get_collections(url: str | None = None, database: str | None = None) -> list
     except requests.RequestException:
         # If API call fails, return empty list
         return []
+
+
+def store_chunks_with_embeddings(
+    chunks: list[dict[str, Any]],
+    collection: str = "DocumentChunks",
+    embedding_model: str | None = None,
+    url: str | None = None,
+    database: str | None = None,
+) -> int:
+    """Generate embeddings for chunks and store them in RavenDB.
+
+    This function takes raw chunk data (without embeddings), generates embeddings
+    for each chunk's text, and stores them in the vectorstore database.
+
+    Args:
+        chunks: List of chunk dictionaries, each containing:
+            - text: The text content of the chunk
+            - source_filename: Original document filename
+            - chunk_index: Index of this chunk in the document
+            - metadata: Optional dict with additional metadata (file_size, etc.)
+        collection: Collection name to store chunks in (default: "DocumentChunks")
+        embedding_model: Model to use for embeddings
+            (defaults to EMBEDDING_MODEL env or 'nomic-embed-text')
+        url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
+        database: Database name (defaults to value from RavenDBConfig.get_database_name())
+
+    Returns:
+        int: Number of chunks successfully stored
+    """
+    if not chunks:
+        return 0
+
+    # Get defaults
+    if embedding_model is None:
+        embedding_model = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+    if url is None:
+        url = RavenDBConfig.get_url()
+    if database is None:
+        database = RavenDBConfig.get_database_name()
+
+    # Generate embeddings for all chunk texts
+    llm_service = os.getenv("LLM_SERVICE", "ollama")
+    service = get_llm_service({"service": llm_service})
+    texts = [chunk.get("text", "") for chunk in chunks]
+    embeddings = service.generate_embeddings(texts, embedding_model)
+
+    # Create document store and ensure index exists
+    store = DocumentStore([url], database)
+    store.initialize()
+
+    try:
+        ensure_index_exists(store)
+
+        # Store chunks in a single session
+        with store.open_session() as session:
+            for i, chunk in enumerate(chunks):
+                source_filename = chunk.get("source_filename", "unknown")
+                chunk_index = chunk.get("chunk_index", i)
+                doc_id = f"{source_filename}_chunk_{chunk_index}"
+
+                # Create document dict matching DocumentChunk structure
+                doc = {
+                    "id": doc_id,
+                    "source_filename": source_filename,
+                    "chunk_index": chunk_index,
+                    "text": chunk.get("text", ""),
+                    "embedding": embeddings[i],
+                    "metadata": chunk.get("metadata", {}),
+                    "collection": collection,
+                }
+
+                # Store the document
+                session.store(doc, doc_id)
+
+                # Set the collection in document metadata
+                metadata = session.advanced.get_metadata_for(doc)
+                metadata["@collection"] = collection
+
+            session.save_changes()
+
+        return len(chunks)
+
+    finally:
+        store.close()

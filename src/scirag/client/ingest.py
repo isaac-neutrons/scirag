@@ -27,6 +27,7 @@ class DocumentChunk:
         embedding: Vector embedding of the text
         metadata: Dictionary containing file metadata (creation_date, modification_date,
                  file_size, page_count, ingestion_date)
+        collection: Name of the collection this chunk belongs to
     """
 
     id: str
@@ -35,6 +36,7 @@ class DocumentChunk:
     text: str
     embedding: list[float]
     metadata: dict[str, str | int | float]
+    collection: str = "DocumentChunks"
 
 
 def extract_text_from_pdf(pdf_path: Path) -> str:
@@ -89,13 +91,19 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]
     return chunks
 
 
-def ingest_pdf(pdf_path: Path, llm_service: str, embedding_model: str) -> list[DocumentChunk]:
+def ingest_pdf(
+    pdf_path: Path,
+    llm_service: str,
+    embedding_model: str,
+    collection: str = "DocumentChunks",
+) -> list[DocumentChunk]:
     """Process a PDF file into document chunks with embeddings.
 
     Args:
         pdf_path: Path to the PDF file
         llm_service: The LLM service to use for generating embeddings
         embedding_model: Name of the embedding model to use
+        collection: Name of the collection to store chunks in (default: DocumentChunks)
 
     Returns:
         list[DocumentChunk]: List of document chunks with embeddings
@@ -152,6 +160,7 @@ def ingest_pdf(pdf_path: Path, llm_service: str, embedding_model: str) -> list[D
             text=text_content,
             embedding=embedding,
             metadata=metadata.copy(),
+            collection=collection,
         )
         document_chunks.append(doc_chunk)
 
@@ -159,14 +168,16 @@ def ingest_pdf(pdf_path: Path, llm_service: str, embedding_model: str) -> list[D
     return document_chunks
 
 
-def store_chunks(chunks: list[DocumentChunk]) -> None:
+def store_chunks(chunks: list[DocumentChunk], collection: str | None = None) -> None:
     """Store document chunks in RavenDB.
 
     The DocumentChunk dataclass objects are stored directly in RavenDB,
-    which will automatically serialize them to JSON.
+    which will automatically serialize them to JSON. The collection name
+    is set in the document's @metadata.@collection field.
 
     Args:
         chunks: List of DocumentChunk objects to store
+        collection: Optional collection name override (uses chunk.collection if not provided)
     """
     store = create_document_store()
 
@@ -176,8 +187,15 @@ def store_chunks(chunks: list[DocumentChunk]) -> None:
     # Store chunks in a single session
     with store.open_session() as session:
         for chunk in chunks:
-            # Store the DocumentChunk object directly
+            # Determine collection name
+            collection_name = collection or chunk.collection or "DocumentChunks"
+
+            # Store the DocumentChunk object
             session.store(chunk, chunk.id)
+
+            # Set the collection in document metadata
+            metadata = session.advanced.get_metadata_for(chunk)
+            metadata["@collection"] = collection_name
 
         session.save_changes()
 

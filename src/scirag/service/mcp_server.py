@@ -26,16 +26,25 @@ mcp = FastMCP("SciRAG Document Retrieval")
 
 
 @mcp.tool()
-async def retrieve_document_chunks(query: str, top_k: int = 5) -> list[dict[str, Any]]:
+async def retrieve_document_chunks(
+    query: str, top_k: int = 5, collection: str | None = None
+) -> list[dict[str, Any]]:
     """
     Searches the document knowledge base for text chunks that are semantically
     similar to the user's query. Returns the top_k most relevant chunks.
     Use this tool to find information to answer a user's question.
+
+    Args:
+        query: The search query text
+        top_k: Number of top results to return (default: 5)
+        collection: Optional collection name to filter by (None = search all)
     """
-    logger.debug(f"MCP Tool: Parameters - query='{query[:100]}...', top_k={top_k}")
+    logger.debug(
+        f"MCP Tool: Parameters - query='{query[:100]}...', top_k={top_k}, collection={collection}"
+    )
 
     try:
-        results = search_documents(query=query, top_k=top_k)
+        results = search_documents(query=query, top_k=top_k, collection=collection)
         logger.info(f"✅ MCP Tool: Returning {len(results)} formatted results to MCP client")
         return results
     except Exception as e:

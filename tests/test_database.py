@@ -7,6 +7,7 @@ import pytest
 
 from scirag.service.database import (
     RavenDBConfig,
+    cosine_similarity,
     count_documents,
     create_database,
     create_document_store,
@@ -14,6 +15,45 @@ from scirag.service.database import (
     ensure_index_exists,
     search_documents,
 )
+
+
+class TestCosineSimilarity:
+    """Tests for cosine_similarity function."""
+
+    def test_identical_vectors_return_one(self):
+        """Test that identical vectors have similarity of 1.0."""
+        vec = [1.0, 2.0, 3.0]
+        assert cosine_similarity(vec, vec) == pytest.approx(1.0)
+
+    def test_orthogonal_vectors_return_zero(self):
+        """Test that orthogonal vectors have similarity of 0.0."""
+        vec_a = [1.0, 0.0]
+        vec_b = [0.0, 1.0]
+        assert cosine_similarity(vec_a, vec_b) == pytest.approx(0.0)
+
+    def test_opposite_vectors_return_negative_one(self):
+        """Test that opposite vectors have similarity of -1.0."""
+        vec_a = [1.0, 2.0, 3.0]
+        vec_b = [-1.0, -2.0, -3.0]
+        assert cosine_similarity(vec_a, vec_b) == pytest.approx(-1.0)
+
+    def test_empty_vectors_return_zero(self):
+        """Test that empty vectors return 0.0."""
+        assert cosine_similarity([], []) == 0.0
+        assert cosine_similarity([1.0], []) == 0.0
+        assert cosine_similarity([], [1.0]) == 0.0
+
+    def test_different_length_vectors_return_zero(self):
+        """Test that vectors of different lengths return 0.0."""
+        vec_a = [1.0, 2.0, 3.0]
+        vec_b = [1.0, 2.0]
+        assert cosine_similarity(vec_a, vec_b) == 0.0
+
+    def test_zero_magnitude_vector_returns_zero(self):
+        """Test that zero magnitude vectors return 0.0."""
+        vec_a = [0.0, 0.0, 0.0]
+        vec_b = [1.0, 2.0, 3.0]
+        assert cosine_similarity(vec_a, vec_b) == 0.0
 
 
 class TestRavenDBConfig:
@@ -327,3 +367,73 @@ class TestCountDocuments:
         assert str(exc_info.value) == "Query failed"
         # Verify store was closed despite error
         mock_store.close.assert_called_once()
+
+
+class TestGetCollections:
+    """Tests for get_collections function."""
+
+    @patch("scirag.service.database.requests.get")
+    def test_get_collections_returns_sorted_list(self, mock_get):
+        """Test that get_collections returns sorted list of collections."""
+        from scirag.service.database import get_collections
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "Collections": {"zebra": 5, "alpha": 10, "beta": 3}
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        result = get_collections("http://test:8080", "testdb")
+
+        assert result == ["alpha", "beta", "zebra"]
+        mock_get.assert_called_once_with(
+            "http://test:8080/databases/testdb/collections/stats", timeout=10
+        )
+
+    @patch("scirag.service.database.requests.get")
+    def test_get_collections_returns_empty_list_on_no_collections(self, mock_get):
+        """Test that get_collections returns empty list when no collections exist."""
+        from scirag.service.database import get_collections
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"Collections": {}}
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        result = get_collections("http://test:8080", "testdb")
+
+        assert result == []
+
+    @patch("scirag.service.database.requests.get")
+    def test_get_collections_returns_empty_list_on_request_error(self, mock_get):
+        """Test that get_collections returns empty list on request failure."""
+        import requests
+        from scirag.service.database import get_collections
+
+        mock_get.side_effect = requests.RequestException("Connection failed")
+
+        result = get_collections("http://test:8080", "testdb")
+
+        assert result == []
+
+    @patch("scirag.service.database.requests.get")
+    def test_get_collections_uses_default_config(self, mock_get):
+        """Test that get_collections uses default URL and database when not provided."""
+        from scirag.service.database import get_collections
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"Collections": {"docs": 1}}
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        with patch.dict(
+            os.environ,
+            {"RAVENDB_URL": "http://env-server:8080", "RAVENDB_DATABASE": "envdb"},
+        ):
+            result = get_collections()
+
+        assert result == ["docs"]
+        mock_get.assert_called_once_with(
+            "http://env-server:8080/databases/envdb/collections/stats", timeout=10
+        )

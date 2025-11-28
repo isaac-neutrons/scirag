@@ -1,5 +1,6 @@
 """Database configuration and connection management for RavenDB."""
 
+import math
 import os
 from typing import Any
 
@@ -20,6 +21,29 @@ from scirag.service.llm_services import get_llm_service
 
 # Load environment variables
 load_dotenv()
+
+
+def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
+    """Compute cosine similarity between two vectors.
+
+    Args:
+        vec_a: First embedding vector
+        vec_b: Second embedding vector
+
+    Returns:
+        float: Cosine similarity score between 0 and 1
+    """
+    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 0.0
+
+    dot_product = sum(a * b for a, b in zip(vec_a, vec_b))
+    magnitude_a = math.sqrt(sum(a * a for a in vec_a))
+    magnitude_b = math.sqrt(sum(b * b for b in vec_b))
+
+    if magnitude_a == 0 or magnitude_b == 0:
+        return 0.0
+
+    return dot_product / (magnitude_a * magnitude_b)
 
 
 class RavenDBConfig:
@@ -222,6 +246,7 @@ def count_documents(url: str | None = None, database: str | None = None) -> int:
 def search_documents(
     query: str,
     top_k: int = 5,
+    collection: str | None = None,
     embedding_model: str | None = None,
     url: str | None = None,
     database: str | None = None,
@@ -231,6 +256,7 @@ def search_documents(
     Args:
         query: The text query to search for
         top_k: Number of top results to return (default: 5)
+        collection: Collection name to filter by (None or empty = search all collections)
         embedding_model: embedding model name
             (defaults to EMBEDDING_MODEL env or 'nomic-embed-text')
         url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
@@ -265,28 +291,111 @@ def search_documents(
     try:
         with store.open_session() as session:
             # Use vector search to find similar documents
-            # Query the collection (not the index directly) to let RavenDB auto-select the vector index
-            # The vector_search() performs KNN search using the embedding field configured in the index
-            results = list(
-                session.query_collection("DocumentChunks", object_type=dict)
-                .vector_search("embedding", query_embedding)
-                .order_by_score()
-                .take(top_k)
-            )
+            # Query the collection to let RavenDB auto-select the vector index
+            # vector_search() performs KNN search using the embedding field
+
+            # Determine which collection(s) to search
+            if collection and collection.strip():
+                # Search specific collection
+                collections_to_search = [collection.strip()]
+            else:
+                # Search all collections - get the list of collections
+                all_collections = get_collections(url, database)
+                # If no collections exist, default to DocumentChunks
+                collections_to_search = all_collections if all_collections else ["DocumentChunks"]
+
+            # Query each collection and collect results
+            all_results = []
+            for coll in collections_to_search:
+                try:
+                    query_base = session.query_collection(coll, object_type=dict)
+                    coll_results = list(
+                        query_base
+                        .vector_search("embedding", query_embedding)
+                        .order_by_score()
+                        .take(top_k)
+                    )
+                    all_results.extend(coll_results)
+                except Exception:
+                    # Skip collections that fail (e.g., no embedding field)
+                    continue
+
+            # Compute scores for results - use @index-score if available,
+            # otherwise compute cosine similarity
+            def get_score(result: dict) -> float:
+                metadata = result.get("@metadata", {})
+                index_score = metadata.get("@index-score")
+                if index_score is not None:
+                    return float(index_score)
+                # Fallback: compute cosine similarity with query embedding
+                result_embedding = result.get("embedding", [])
+                if result_embedding:
+                    return cosine_similarity(query_embedding, result_embedding)
+                return 0.0
+
+            # Sort all results by score and take top_k
+            all_results.sort(key=get_score, reverse=True)
+            results = all_results[:top_k]
 
         # Format the results
-        formatted_results = [
-            {
+        formatted_results = []
+        for result in results:
+            # Get score - prefer @index-score, fallback to computed similarity
+            metadata = result.get("@metadata", {})
+            index_score = metadata.get("@index-score")
+            if index_score is not None:
+                score = float(index_score)
+            else:
+                result_embedding = result.get("embedding", [])
+                score = cosine_similarity(query_embedding, result_embedding)
+
+            formatted_results.append({
                 "source": result.get("source_filename", "Unknown"),
                 "content": result.get("text", ""),
                 "chunk_index": result.get("chunk_index", 0),
-                "score": result.get("@metadata", {}).get("@index-score", 0.0),
+                "score": score,
                 "metadata": result.get("metadata", {}),
-            }
-            for result in results
-        ]
+                "collection": metadata.get(
+                    "@collection", result.get("collection", "DocumentChunks")
+                ),
+            })
 
         return formatted_results
 
     finally:
         store.close()
+
+
+def get_collections(url: str | None = None, database: str | None = None) -> list[str]:
+    """Get a list of unique collection names from the database.
+
+    Uses RavenDB's REST API to fetch collection statistics and extract collection names.
+
+    Args:
+        url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
+        database: Database name (defaults to value from RavenDBConfig.get_database_name())
+
+    Returns:
+        list[str]: Sorted list of unique collection names
+    """
+    import requests
+
+    if url is None:
+        url = RavenDBConfig.get_url()
+    if database is None:
+        database = RavenDBConfig.get_database_name()
+
+    try:
+        # Use RavenDB REST API to get collection statistics
+        response = requests.get(
+            f"{url}/databases/{database}/collections/stats", timeout=10
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        collections = list(data.get("Collections", {}).keys())
+        return sorted(collections)
+
+    except requests.RequestException:
+        # If API call fails, return empty list
+        return []

@@ -9,11 +9,15 @@ import asyncio
 import json
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastmcp import Client
 from flask import Flask, jsonify, render_template, request
+from werkzeug.utils import secure_filename
 
+from scirag.client.ingest import ingest_pdf, store_chunks
+from scirag.service.database import get_collections
 from scirag.service.llm_services import get_llm_service
 
 # Configure logging
@@ -31,6 +35,14 @@ logger.debug("Environment variables loaded")
 # Create Flask app
 app = Flask(__name__)
 logger.debug("Flask app created")
+
+# Configure upload settings
+UPLOAD_FOLDER = Path(os.getenv("UPLOAD_FOLDER", "/tmp/scirag_uploads"))
+ALLOWED_EXTENSIONS = {"pdf"}
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB max file size
+
+# Ensure upload folder exists
+UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 
 # Global service instances
 llm_service = None
@@ -58,6 +70,18 @@ def initialize_services():
     logger.info(f"✅ MCP client initialized successfully (server: {mcp_server_url})")
 
 
+def allowed_file(filename: str) -> bool:
+    """Check if the file extension is allowed.
+
+    Args:
+        filename: The filename to check
+
+    Returns:
+        True if extension is allowed, False otherwise
+    """
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
 @app.route("/")
 def index():
     """Serve the chat interface web page.
@@ -66,6 +90,137 @@ def index():
         HTML page with interactive chat interface
     """
     return render_template("chat.html")
+
+
+@app.route("/upload")
+def upload_page():
+    """Serve the document upload page.
+
+    Returns:
+        HTML page with drag-and-drop upload interface
+    """
+    return render_template("upload.html")
+
+
+@app.route("/api/collections", methods=["GET"])
+def list_collections():
+    """Get list of existing collection names.
+
+    Returns:
+        JSON response with list of collection names
+    """
+    logger.info("📂 Fetching collection names")
+    try:
+        collections = get_collections()
+        logger.info(f"✅ Found {len(collections)} collections")
+        return jsonify({"success": True, "collections": collections})
+    except Exception as e:
+        logger.warning(f"⚠️ Could not fetch collections: {e}")
+        # Return empty list if database doesn't exist or other error
+        return jsonify({"success": True, "collections": []})
+
+
+@app.route("/api/upload", methods=["POST"])
+def upload_documents():
+    """Handle document upload and ingestion into vectorstore.
+
+    Expects multipart form data with:
+        - files: One or more PDF files
+        - collection: Name of the collection to store documents in
+
+    Response:
+        {
+            "success": true,
+            "message": "Successfully ingested X documents",
+            "details": [
+                {"filename": "doc.pdf", "chunks": 10, "status": "success"},
+                ...
+            ]
+        }
+
+    Returns:
+        JSON response with upload status
+    """
+    logger.info("📤 Received document upload request")
+
+    try:
+        # Check if files were provided
+        if "files" not in request.files:
+            logger.warning("❌ No files in request")
+            return jsonify({"success": False, "error": "No files provided"}), 400
+
+        files = request.files.getlist("files")
+        collection = request.form.get("collection", "default")
+
+        if not files or all(f.filename == "" for f in files):
+            logger.warning("❌ No files selected")
+            return jsonify({"success": False, "error": "No files selected"}), 400
+
+        logger.info(f"📁 Collection: {collection}")
+        logger.info(f"📄 Files received: {len(files)}")
+
+        # Get LLM service and embedding model from environment
+        llm_service_name = os.getenv("LLM_SERVICE", "ollama")
+        embedding_model = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+
+        results = []
+        success_count = 0
+
+        for file in files:
+            if file.filename == "":
+                continue
+
+            if not allowed_file(file.filename):
+                results.append({
+                    "filename": file.filename,
+                    "status": "error",
+                    "error": "File type not allowed. Only PDF files are accepted."
+                })
+                continue
+
+            try:
+                # Save file temporarily
+                filename = secure_filename(file.filename)
+                filepath = UPLOAD_FOLDER / filename
+                file.save(filepath)
+                logger.info(f"💾 Saved file: {filepath}")
+
+                # Ingest the PDF
+                chunks = ingest_pdf(filepath, llm_service_name, embedding_model, collection)
+                logger.info(f"📊 Generated {len(chunks)} chunks from {filename}")
+
+                # Store chunks in the database with collection metadata
+                store_chunks(chunks, collection)
+                logger.info(f"✅ Stored chunks for {filename} in collection '{collection}'")
+
+                results.append({
+                    "filename": filename,
+                    "chunks": len(chunks),
+                    "status": "success"
+                })
+                success_count += 1
+
+                # Clean up temporary file
+                filepath.unlink()
+
+            except Exception as e:
+                logger.error(f"❌ Error processing {file.filename}: {e}", exc_info=True)
+                results.append({
+                    "filename": file.filename,
+                    "status": "error",
+                    "error": str(e)
+                })
+
+        return jsonify({
+            "success": success_count > 0,
+            "message": f"Successfully ingested {success_count} of {len(files)} documents",
+            "collection": collection,
+            "details": results
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error in upload handler: {e}", exc_info=True)
+        return jsonify({"success": False, "error": f"Internal server error: {str(e)}"}), 500
 
 
 @app.route("/api/chat", methods=["POST"])
@@ -102,7 +257,9 @@ def chat():
 
         user_query = data["query"]
         top_k = data.get("top_k", 5)
+        collection = data.get("collection", None)  # None = search all collections
         logger.info(f"🔍 Query: '{user_query[:100]}...'")
+        logger.info(f"📁 Collection filter: {collection or 'All collections'}")
 
         # Run async operations in event loop
         loop = asyncio.new_event_loop()
@@ -113,8 +270,11 @@ def chat():
 
             async def get_chunks():
                 async with mcp_client:
+                    tool_params = {"query": user_query, "top_k": top_k}
+                    if collection:
+                        tool_params["collection"] = collection
                     result = await mcp_client.call_tool(
-                        "retrieve_document_chunks", {"query": user_query, "top_k": top_k}
+                        "retrieve_document_chunks", tool_params
                     )
                     # Extract content from CallToolResult
                     # result.content is a list of TextContent objects

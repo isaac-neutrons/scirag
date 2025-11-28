@@ -158,3 +158,141 @@ class TestMain:
         assert "host" in call_kwargs
         assert "port" in call_kwargs
         assert "debug" in call_kwargs
+
+
+class TestUploadPage:
+    """Tests for the /upload endpoint."""
+
+    def test_upload_page_returns_html(self):
+        """Test that upload page renders correctly."""
+        with app.test_client() as client:
+            response = client.get("/upload")
+            assert response.status_code == 200
+            assert b"Document Upload" in response.data
+            assert b"Collection" in response.data
+            assert b"Drag & Drop" in response.data
+
+
+class TestCollectionsEndpoint:
+    """Tests for the /api/collections endpoint."""
+
+    @patch("scirag.client.app.get_collections")
+    def test_collections_returns_list(self, mock_get_collections):
+        """Test that collections endpoint returns list of collections."""
+        mock_get_collections.return_value = ["papers", "reports", "research"]
+        with app.test_client() as client:
+            response = client.get("/api/collections")
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert data["collections"] == ["papers", "reports", "research"]
+
+    @patch("scirag.client.app.get_collections")
+    def test_collections_returns_empty_list(self, mock_get_collections):
+        """Test that collections endpoint returns empty list when no collections exist."""
+        mock_get_collections.return_value = []
+        with app.test_client() as client:
+            response = client.get("/api/collections")
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert data["collections"] == []
+
+
+class TestUploadEndpoint:
+    """Tests for the /api/upload endpoint."""
+
+    def test_upload_no_files_returns_error(self):
+        """Test that upload without files returns error."""
+        with app.test_client() as client:
+            response = client.post("/api/upload", data={})
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert data["success"] is False
+            assert "No files" in data["error"]
+
+    def test_upload_empty_files_returns_error(self):
+        """Test that upload with empty file list returns error."""
+        with app.test_client() as client:
+            response = client.post(
+                "/api/upload",
+                data={"files": [], "collection": "test"},
+                content_type="multipart/form-data",
+            )
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert data["success"] is False
+
+    @patch("scirag.client.app.store_chunks")
+    @patch("scirag.client.app.ingest_pdf")
+    def test_upload_pdf_success(self, mock_ingest, mock_store):
+        """Test successful PDF upload and ingestion."""
+        from io import BytesIO
+
+        # Mock the ingest function to return chunks
+        mock_chunks = [MagicMock(id="test_chunk_0")]
+        mock_ingest.return_value = mock_chunks
+
+        with app.test_client() as client:
+            # Create a fake PDF file
+            data = {
+                "files": (BytesIO(b"%PDF-1.4 test content"), "test.pdf"),
+                "collection": "test-collection",
+            }
+            response = client.post(
+                "/api/upload",
+                data=data,
+                content_type="multipart/form-data",
+            )
+
+            assert response.status_code == 200
+            result = json.loads(response.data)
+            assert result["success"] is True
+            assert result["collection"] == "test-collection"
+            assert len(result["details"]) == 1
+            assert result["details"][0]["status"] == "success"
+
+    def test_upload_non_pdf_rejected(self):
+        """Test that non-PDF files are rejected."""
+        from io import BytesIO
+
+        with app.test_client() as client:
+            data = {
+                "files": (BytesIO(b"not a pdf"), "test.txt"),
+                "collection": "test",
+            }
+            response = client.post(
+                "/api/upload",
+                data=data,
+                content_type="multipart/form-data",
+            )
+
+            assert response.status_code == 200
+            result = json.loads(response.data)
+            # Since all files were rejected, success should be False
+            assert result["success"] is False
+            assert "not allowed" in result["details"][0]["error"]
+
+    @patch("scirag.client.app.ingest_pdf")
+    def test_upload_handles_ingest_error(self, mock_ingest):
+        """Test that ingest errors are handled gracefully."""
+        from io import BytesIO
+
+        mock_ingest.side_effect = Exception("Ingest failed")
+
+        with app.test_client() as client:
+            data = {
+                "files": (BytesIO(b"%PDF-1.4 test"), "test.pdf"),
+                "collection": "test",
+            }
+            response = client.post(
+                "/api/upload",
+                data=data,
+                content_type="multipart/form-data",
+            )
+
+            assert response.status_code == 200
+            result = json.loads(response.data)
+            assert result["success"] is False
+            assert result["details"][0]["status"] == "error"
+            assert "Ingest failed" in result["details"][0]["error"]

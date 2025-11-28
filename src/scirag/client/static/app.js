@@ -6,6 +6,47 @@ const sendButton = document.getElementById('sendButton');
 let isWaitingForResponse = false;
 let retrievedSources = []; // Store sources from latest query
 
+// Load collections on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadCollections();
+});
+
+// Load available collections into the dropdown
+async function loadCollections() {
+    const select = document.getElementById('collectionSelect');
+    if (!select) return;
+
+    try {
+        const response = await fetch('/api/collections');
+        const data = await response.json();
+
+        // Clear existing options except "All Collections"
+        select.innerHTML = '<option value="">All Collections</option>';
+
+        if (data.collections && data.collections.length > 0) {
+            data.collections.forEach(collection => {
+                const option = document.createElement('option');
+                option.value = collection;
+                option.textContent = collection;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Failed to load collections:', error);
+    }
+}
+
+// Refresh collections list
+function refreshCollections() {
+    loadCollections();
+}
+
+// Get selected collection (empty string means all collections)
+function getSelectedCollection() {
+    const select = document.getElementById('collectionSelect');
+    return select ? select.value : '';
+}
+
 // Auto-resize textarea
 messageInput.addEventListener('input', function() {
     this.style.height = 'auto';
@@ -51,17 +92,27 @@ async function sendMessage() {
     
     // Show loading indicator
     const loadingId = showLoading();
+
+    // Get selected collection
+    const collection = getSelectedCollection();
     
     try {
+        const requestBody = {
+            query: message,
+            top_k: 5
+        };
+        
+        // Only include collection if one is selected
+        if (collection) {
+            requestBody.collection = collection;
+        }
+
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                query: message,
-                top_k: 5
-            })
+            body: JSON.stringify(requestBody)
         });
         
         // Remove loading indicator
@@ -109,7 +160,8 @@ function addMessage(content, role, sources = null) {
         messageHTML += '<div class="message-sources">';
         messageHTML += '<i class="bi bi-files"></i> <strong>Sources:</strong> ';
         sources.forEach(source => {
-            messageHTML += `<span class="source-tag">${escapeHtml(source.source)} (chunk ${source.chunk_index})</span>`;
+            const collection = source.collection || 'DocumentChunks';
+            messageHTML += `<span class="source-tag">${escapeHtml(source.source)} <span class="collection-badge">${escapeHtml(collection)}</span></span>`;
         });
         messageHTML += '</div>';
     }
@@ -211,6 +263,7 @@ function displaySources() {
                 <thead>
                     <tr>
                         <th><i class="bi bi-file-text"></i> Source Document</th>
+                        <th><i class="bi bi-folder2"></i> Collection</th>
                         <th><i class="bi bi-hash"></i> Chunk</th>
                         <th><i class="bi bi-star-fill"></i> Score</th>
                         <th><i class="bi bi-eye"></i> Preview</th>
@@ -222,9 +275,11 @@ function displaySources() {
     retrievedSources.forEach(source => {
         const content = source.content || '';
         const preview = content.length > 100 ? content.substring(0, 100) + '...' : content;
+        const collection = source.collection || 'DocumentChunks';
         tableHTML += `
             <tr>
                 <td class="source-filename">${escapeHtml(source.source || 'Unknown')}</td>
+                <td><span class="badge bg-secondary">${escapeHtml(collection)}</span></td>
                 <td>${source.chunk_index !== undefined ? source.chunk_index : 'N/A'}</td>
                 <td>
                     ${source.score !== undefined ? source.score.toFixed(3) : 'N/A'}

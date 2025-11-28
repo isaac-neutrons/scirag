@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SciRAG - Document Upload</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="bg-light">
+    <div class="container-fluid h-100">
+        <div class="row h-100 justify-content-center align-items-center py-4">
+            <div class="col-12 col-lg-10 col-xl-8">
+                <div class="card shadow-lg border-0 upload-card">
+                    <!-- Header -->
+                    <div class="card-header bg-header text-muted py-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h4 class="mb-1"><i class="bi bi-cloud-upload-fill"></i> Document Upload</h4>
+                                <small class="opacity-75">Upload PDF documents to the vectorstore</small>
+                            </div>
+                            <a href="/" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-chat-dots"></i> Back to Chat
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="card-body p-4">
+                        <!-- Collection Selection -->
+                        <div class="mb-4">
+                            <label for="collectionSelect" class="form-label fw-semibold">
+                                <i class="bi bi-folder2"></i> Collection
+                            </label>
+                            <div class="input-group">
+                                <select 
+                                    class="form-select form-select-lg" 
+                                    id="collectionSelect"
+                                    onchange="handleCollectionChange()"
+                                >
+                                    <option value="" disabled>Loading collections...</option>
+                                </select>
+                                <button 
+                                    class="btn btn-outline-secondary" 
+                                    type="button" 
+                                    onclick="refreshCollections()"
+                                    title="Refresh collections"
+                                >
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </div>
+                            
+                            <!-- New Collection Input (hidden by default) -->
+                            <div id="newCollectionGroup" class="mt-2" style="display: none;">
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="bi bi-plus-circle"></i></span>
+                                    <input 
+                                        type="text" 
+                                        class="form-control" 
+                                        id="newCollectionName" 
+                                        placeholder="Enter new collection name"
+                                    >
+                                </div>
+                            </div>
+                            
+                            <div class="form-text">
+                                Select an existing collection or create a new one to organize your documents.
+                            </div>
+                        </div>
+
+                        <!-- Drag and Drop Area -->
+                        <div 
+                            id="dropZone" 
+                            class="drop-zone p-5 text-center border border-3 border-dashed rounded-4 mb-4"
+                            ondragover="handleDragOver(event)"
+                            ondragleave="handleDragLeave(event)"
+                            ondrop="handleDrop(event)"
+                            onclick="document.getElementById('fileInput').click()"
+                        >
+                            <div class="drop-zone-content">
+                                <i class="bi bi-file-earmark-pdf display-1 text-primary mb-3"></i>
+                                <h5 class="mb-2">Drag & Drop PDF Files Here</h5>
+                                <p class="text-muted mb-3">or click to browse</p>
+                                <button class="btn btn-outline-primary">
+                                    <i class="bi bi-folder2-open"></i> Browse Files
+                                </button>
+                            </div>
+                            <input 
+                                type="file" 
+                                id="fileInput" 
+                                class="d-none" 
+                                accept=".pdf" 
+                                multiple 
+                                onchange="handleFileSelect(event)"
+                            >
+                        </div>
+
+                        <!-- Selected Files List -->
+                        <div id="fileList" class="mb-4" style="display: none;">
+                            <h6 class="fw-semibold mb-3">
+                                <i class="bi bi-files"></i> Selected Files
+                            </h6>
+                            <div id="fileListContent" class="list-group">
+                                <!-- Files will be listed here -->
+                            </div>
+                        </div>
+
+                        <!-- Upload Button -->
+                        <div class="d-grid gap-2">
+                            <button 
+                                id="uploadBtn" 
+                                class="btn btn-primary btn-lg" 
+                                onclick="uploadFiles()"
+                                disabled
+                            >
+                                <i class="bi bi-cloud-upload"></i> Upload and Ingest Documents
+                            </button>
+                        </div>
+
+                        <!-- Progress Section -->
+                        <div id="progressSection" class="mt-4" style="display: none;">
+                            <h6 class="fw-semibold mb-3">
+                                <i class="bi bi-gear-wide-connected spin"></i> Processing...
+                            </h6>
+                            <div class="progress mb-3" style="height: 25px;">
+                                <div 
+                                    id="progressBar" 
+                                    class="progress-bar progress-bar-striped progress-bar-animated" 
+                                    role="progressbar" 
+                                    style="width: 0%"
+                                >
+                                    0%
+                                </div>
+                            </div>
+                            <div id="progressStatus" class="text-muted small">
+                                Preparing upload...
+                            </div>
+                        </div>
+
+                        <!-- Results Section -->
+                        <div id="resultsSection" class="mt-4" style="display: none;">
+                            <div id="resultsAlert" class="alert" role="alert">
+                                <!-- Results will be shown here -->
+                            </div>
+                            <div id="resultsDetails" class="accordion" id="resultsAccordion">
+                                <!-- Detailed results will be listed here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        let selectedFiles = [];
+
+        // Load collections on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCollections();
+        });
+
+        async function loadCollections() {
+            const select = document.getElementById('collectionSelect');
+            
+            try {
+                const response = await fetch('/api/collections');
+                const data = await response.json();
+                
+                // Build options
+                let optionsHTML = '';
+                
+                if (data.collections && data.collections.length > 0) {
+                    // Add existing collections
+                    data.collections.forEach(collection => {
+                        optionsHTML += `<option value="${escapeHtml(collection)}">${escapeHtml(collection)}</option>`;
+                    });
+                    // Add separator and new collection option
+                    optionsHTML += '<option disabled>──────────────</option>';
+                }
+                
+                // Always add the "Create new collection" option
+                optionsHTML += '<option value="__new__">➕ Create new collection...</option>';
+                
+                // Add default option if no collections exist
+                if (!data.collections || data.collections.length === 0) {
+                    optionsHTML = '<option value="DocumentChunks">DocumentChunks (default)</option>' +
+                                  '<option disabled>──────────────</option>' +
+                                  '<option value="__new__">➕ Create new collection...</option>';
+                }
+                
+                select.innerHTML = optionsHTML;
+                
+            } catch (error) {
+                console.error('Error loading collections:', error);
+                // Fallback to default
+                select.innerHTML = `
+                    <option value="DocumentChunks">DocumentChunks (default)</option>
+                    <option disabled>──────────────</option>
+                    <option value="__new__">➕ Create new collection...</option>
+                `;
+            }
+        }
+
+        function refreshCollections() {
+            const select = document.getElementById('collectionSelect');
+            select.innerHTML = '<option value="" disabled selected>Loading...</option>';
+            loadCollections();
+        }
+
+        function handleCollectionChange() {
+            const select = document.getElementById('collectionSelect');
+            const newCollectionGroup = document.getElementById('newCollectionGroup');
+            const newCollectionInput = document.getElementById('newCollectionName');
+            
+            if (select.value === '__new__') {
+                newCollectionGroup.style.display = 'block';
+                newCollectionInput.focus();
+            } else {
+                newCollectionGroup.style.display = 'none';
+                newCollectionInput.value = '';
+            }
+        }
+
+        function getSelectedCollection() {
+            const select = document.getElementById('collectionSelect');
+            const newCollectionInput = document.getElementById('newCollectionName');
+            
+            if (select.value === '__new__') {
+                return newCollectionInput.value.trim() || 'DocumentChunks';
+            }
+            return select.value || 'DocumentChunks';
+        }
+
+        function handleDragOver(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.getElementById('dropZone').classList.add('drag-over');
+        }
+
+        function handleDragLeave(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.getElementById('dropZone').classList.remove('drag-over');
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.getElementById('dropZone').classList.remove('drag-over');
+            
+            const files = Array.from(event.dataTransfer.files).filter(
+                file => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+            );
+            
+            if (files.length === 0) {
+                showAlert('warning', 'Only PDF files are accepted.');
+                return;
+            }
+            
+            addFiles(files);
+        }
+
+        function handleFileSelect(event) {
+            const files = Array.from(event.target.files);
+            addFiles(files);
+        }
+
+        function addFiles(files) {
+            // Add new files (avoid duplicates by name)
+            files.forEach(file => {
+                if (!selectedFiles.some(f => f.name === file.name)) {
+                    selectedFiles.push(file);
+                }
+            });
+            
+            updateFileList();
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        function updateFileList() {
+            const fileList = document.getElementById('fileList');
+            const fileListContent = document.getElementById('fileListContent');
+            const uploadBtn = document.getElementById('uploadBtn');
+            
+            if (selectedFiles.length === 0) {
+                fileList.style.display = 'none';
+                uploadBtn.disabled = true;
+                return;
+            }
+            
+            fileList.style.display = 'block';
+            uploadBtn.disabled = false;
+            
+            fileListContent.innerHTML = selectedFiles.map((file, index) => `
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <i class="bi bi-file-earmark-pdf text-danger me-2"></i>
+                        <span class="fw-medium">${escapeHtml(file.name)}</span>
+                        <span class="text-muted ms-2">(${formatFileSize(file.size)})</span>
+                    </div>
+                    <button class="btn btn-outline-danger btn-sm" onclick="removeFile(${index})">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        async function uploadFiles() {
+            if (selectedFiles.length === 0) return;
+            
+            const collection = getSelectedCollection();
+            if (!collection) {
+                showAlert('warning', 'Please select or enter a collection name.');
+                return;
+            }
+            
+            const uploadBtn = document.getElementById('uploadBtn');
+            const progressSection = document.getElementById('progressSection');
+            const resultsSection = document.getElementById('resultsSection');
+            
+            // Reset and show progress
+            uploadBtn.disabled = true;
+            progressSection.style.display = 'block';
+            resultsSection.style.display = 'none';
+            updateProgress(10, 'Preparing files...');
+            
+            // Create form data
+            const formData = new FormData();
+            formData.append('collection', collection);
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+            
+            updateProgress(30, 'Uploading files...');
+            
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                updateProgress(70, 'Processing documents...');
+                
+                const result = await response.json();
+                
+                updateProgress(100, 'Complete!');
+                
+                // Show results after a short delay
+                setTimeout(() => {
+                    progressSection.style.display = 'none';
+                    showResults(result);
+                }, 500);
+                
+            } catch (error) {
+                console.error('Upload error:', error);
+                progressSection.style.display = 'none';
+                showResults({
+                    success: false,
+                    error: 'Network error: ' + error.message
+                });
+            }
+            
+            uploadBtn.disabled = false;
+        }
+
+        function updateProgress(percent, status) {
+            const progressBar = document.getElementById('progressBar');
+            const progressStatus = document.getElementById('progressStatus');
+            
+            progressBar.style.width = percent + '%';
+            progressBar.textContent = percent + '%';
+            progressStatus.textContent = status;
+        }
+
+        function showResults(result) {
+            const resultsSection = document.getElementById('resultsSection');
+            const resultsAlert = document.getElementById('resultsAlert');
+            const resultsDetails = document.getElementById('resultsDetails');
+            
+            resultsSection.style.display = 'block';
+            
+            if (result.success) {
+                resultsAlert.className = 'alert alert-success';
+                resultsAlert.innerHTML = `
+                    <h5 class="alert-heading"><i class="bi bi-check-circle-fill"></i> Upload Successful!</h5>
+                    <p class="mb-0">${escapeHtml(result.message)}</p>
+                    <p class="mb-0 mt-2"><strong>Collection:</strong> ${escapeHtml(result.collection)}</p>
+                `;
+                
+                // Clear selected files on success
+                selectedFiles = [];
+                updateFileList();
+            } else {
+                resultsAlert.className = 'alert alert-danger';
+                resultsAlert.innerHTML = `
+                    <h5 class="alert-heading"><i class="bi bi-exclamation-triangle-fill"></i> Upload Failed</h5>
+                    <p class="mb-0">${escapeHtml(result.error || result.message)}</p>
+                `;
+            }
+            
+            // Show detailed results if available
+            if (result.details && result.details.length > 0) {
+                resultsDetails.innerHTML = `
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#detailsCollapse">
+                                <i class="bi bi-list-ul me-2"></i> Detailed Results
+                            </button>
+                        </h2>
+                        <div id="detailsCollapse" class="accordion-collapse collapse" data-bs-parent="#resultsAccordion">
+                            <div class="accordion-body">
+                                <ul class="list-group list-group-flush">
+                                    ${result.details.map(detail => `
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <i class="bi bi-file-earmark-pdf ${detail.status === 'success' ? 'text-success' : 'text-danger'} me-2"></i>
+                                                ${escapeHtml(detail.filename)}
+                                                ${detail.chunks ? `<span class="text-muted ms-2">(${detail.chunks} chunks)</span>` : ''}
+                                            </div>
+                                            ${detail.status === 'success' 
+                                                ? '<span class="badge bg-success"><i class="bi bi-check"></i></span>'
+                                                : `<span class="badge bg-danger" title="${escapeHtml(detail.error || '')}"><i class="bi bi-x"></i></span>`
+                                            }
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                resultsDetails.innerHTML = '';
+            }
+        }
+
+        function showAlert(type, message) {
+            const resultsSection = document.getElementById('resultsSection');
+            const resultsAlert = document.getElementById('resultsAlert');
+            const resultsDetails = document.getElementById('resultsDetails');
+            
+            resultsSection.style.display = 'block';
+            resultsAlert.className = `alert alert-${type}`;
+            resultsAlert.innerHTML = `<i class="bi bi-exclamation-triangle"></i> ${escapeHtml(message)}`;
+            resultsDetails.innerHTML = '';
+            
+            // Auto-hide after 3 seconds
+            setTimeout(() => {
+                resultsSection.style.display = 'none';
+            }, 3000);
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

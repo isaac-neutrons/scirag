@@ -35,6 +35,7 @@ class TestIngestCLI:
                 text="test",
                 embedding=[0.1],
                 metadata={"file_size": 100, "page_count": 1},
+                collection="DocumentChunks",
             )
         ]
         mock_ingest.return_value = mock_chunks
@@ -45,7 +46,7 @@ class TestIngestCLI:
         assert "Found 1 PDF file" in result.output
         assert "Storing 1 chunks in RavenDB" in result.output
         mock_ingest.assert_called_once()
-        mock_store.assert_called_once_with(mock_chunks)
+        mock_store.assert_called_once_with(mock_chunks, "DocumentChunks")
 
     @patch("scirag.client.cli.database_exists")
     @patch("scirag.client.cli.store_chunks")
@@ -69,6 +70,7 @@ class TestIngestCLI:
                 text="test1",
                 embedding=[0.1],
                 metadata={"file_size": 100, "page_count": 1},
+                collection="DocumentChunks",
             )
         ]
         mock_chunks2 = [
@@ -79,6 +81,7 @@ class TestIngestCLI:
                 text="test2",
                 embedding=[0.2],
                 metadata={"file_size": 200, "page_count": 2},
+                collection="DocumentChunks",
             )
         ]
         mock_ingest.side_effect = [mock_chunks1, mock_chunks2]
@@ -158,6 +161,7 @@ class TestIngestCLI:
                 text="test",
                 embedding=[0.1],
                 metadata={"file_size": 100, "page_count": 1},
+                collection="DocumentChunks",
             )
         ]
         mock_ingest.return_value = mock_chunks
@@ -170,6 +174,43 @@ class TestIngestCLI:
         assert "Using embedding model: custom-model" in result.output
         # Verify ingest_pdf was called with custom model
         assert mock_ingest.call_args[0][2] == "custom-model"
+
+    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli.store_chunks")
+    @patch("scirag.client.cli.ingest_pdf")
+    def test_ingest_custom_collection(
+        self, mock_ingest, mock_store, mock_db_exists, tmp_path
+    ):
+        """Test ingest command with custom collection name."""
+        # Create a PDF file
+        pdf_file = tmp_path / "doc.pdf"
+        pdf_file.write_text("dummy")
+
+        mock_db_exists.return_value = True
+        mock_chunks = [
+            DocumentChunk(
+                id="doc.pdf_chunk_0",
+                source_filename="doc.pdf",
+                chunk_index=0,
+                text="test",
+                embedding=[0.1],
+                metadata={"file_size": 100, "page_count": 1},
+                collection="research-papers",
+            )
+        ]
+        mock_ingest.return_value = mock_chunks
+
+        result = self.runner.invoke(
+            ingest, [str(tmp_path), "--collection", "research-papers"]
+        )
+
+        assert result.exit_code == 0
+        assert "Collection: research-papers" in result.output
+        assert "collection: 'research-papers'" in result.output
+        # Verify ingest_pdf was called with collection
+        assert mock_ingest.call_args[0][3] == "research-papers"
+        # Verify store_chunks was called with collection
+        mock_store.assert_called_once_with(mock_chunks, "research-papers")
 
     @patch("scirag.client.cli.database_exists")
     @patch("scirag.client.cli.store_chunks")
@@ -192,6 +233,7 @@ class TestIngestCLI:
                 text="test",
                 embedding=[0.1],
                 metadata={"file_size": 100, "page_count": 1},
+                collection="DocumentChunks",
             )
         ]
         mock_ingest.return_value = mock_chunks
@@ -223,6 +265,7 @@ class TestIngestCLI:
                 text="test",
                 embedding=[0.1],
                 metadata={"file_size": 100, "page_count": 1},
+                collection="DocumentChunks",
             )
         ]
         mock_ingest.return_value = mock_chunks

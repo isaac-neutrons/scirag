@@ -35,7 +35,18 @@ from scirag.service.database import (
     default=False,
     help="Create the RavenDB database if it doesn't exist",
 )
-def ingest(directory: Path, embedding_model: str | None, create_database_flag: bool) -> None:
+@click.option(
+    "--collection",
+    type=str,
+    default="DocumentChunks",
+    help="Collection name for organizing documents in the database (default: 'DocumentChunks')",
+)
+def ingest(
+    directory: Path,
+    embedding_model: str | None,
+    create_database_flag: bool,
+    collection: str,
+) -> None:
     """Ingest PDF files from DIRECTORY into the SciRAG knowledge base.
 
     Processes all PDF files in the specified directory, extracts text,
@@ -45,6 +56,7 @@ def ingest(directory: Path, embedding_model: str | None, create_database_flag: b
         scirag-ingest documents/
         scirag-ingest documents/ --embedding-model custom-model
         scirag-ingest documents/ --create-database
+        scirag-ingest documents/ --collection research-papers
     """
     # Check if database exists
     if not database_exists():
@@ -79,13 +91,14 @@ def ingest(directory: Path, embedding_model: str | None, create_database_flag: b
 
     click.echo(f"Found {len(pdf_files)} PDF file(s)")
     click.echo(f"Using embedding model: {model}")
+    click.echo(f"Collection: {collection}")
     click.echo()
 
     # Process each PDF
     all_chunks = []
     for pdf_path in pdf_files:
         try:
-            chunks = ingest_pdf(pdf_path, llm_service, model)
+            chunks = ingest_pdf(pdf_path, llm_service, model, collection)
             all_chunks.extend(chunks)
         except Exception as e:
             click.echo(f"  ✗ Error processing {pdf_path.name}: {e}", err=True)
@@ -94,9 +107,9 @@ def ingest(directory: Path, embedding_model: str | None, create_database_flag: b
     # Store all chunks
     if all_chunks:
         click.echo()
-        click.echo(f"Storing {len(all_chunks)} chunks in RavenDB...")
+        click.echo(f"Storing {len(all_chunks)} chunks in RavenDB (collection: '{collection}')...")
         try:
-            store_chunks(all_chunks)
+            store_chunks(all_chunks, collection)
             click.echo("✓ Ingestion complete!")
         except Exception as e:
             # Check if it's a database not found error

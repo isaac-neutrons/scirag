@@ -118,8 +118,7 @@ def ingest(
     if all_chunks:
         click.echo()
         click.echo(
-            f"Storing {len(all_chunks)} chunks via MCP server "
-            f"(collection: '{collection}')..."
+            f"Storing {len(all_chunks)} chunks via MCP server (collection: '{collection}')..."
         )
         try:
             # Use async to call MCP tool
@@ -127,8 +126,7 @@ def ingest(
                 mcp_client = Client(local_mcp_server_url)
                 async with mcp_client:
                     result = await mcp_client.call_tool(
-                        "store_document_chunks",
-                        {"chunks": all_chunks, "collection": collection}
+                        "store_document_chunks", {"chunks": all_chunks, "collection": collection}
                     )
                     if hasattr(result, "content") and result.content:
                         if isinstance(result.content, list):
@@ -140,8 +138,7 @@ def ingest(
 
             if store_result.get("success"):
                 click.echo(
-                    f"✓ Ingestion complete! "
-                    f"Stored {store_result.get('chunks_stored', 0)} chunks."
+                    f"✓ Ingestion complete! Stored {store_result.get('chunks_stored', 0)} chunks."
                 )
             else:
                 error_msg = store_result.get("message", "Unknown error")

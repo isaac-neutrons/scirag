@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  scirag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"  # Flask app
+      - "8001:8001"  # MCP server
+      - "8888:8888"  # RavenDB HTTP
+      - "38888:38888"  # RavenDB TCP
+    environment:
+      # LLM Configuration
+      - LLM_SERVICE=gemini
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-2.0-flash-exp
+      - EMBEDDING_MODEL=text-embedding-004
+      
+      # MCP Server
+      - LOCAL_MCP_SERVER_URL=http://localhost:8001/sse
+      
+      # RavenDB
+      - RAVENDB_URL=http://localhost:8888
+      - RAVENDB_DATABASE=scirag
+      
+      # Flask
+      - FLASK_HOST=0.0.0.0
+      - FLASK_PORT=8080
+      - FLASK_ENV=production
+      
+      # Logging
+      - LOG_LEVEL=INFO
+    
+    volumes:
+      # Persist RavenDB data (official .deb package path)
+      - ravendb-data:/var/lib/ravendb/data
+      # Mount documents directory for ingestion
+      - ./documents:/app/documents
+      # Mount logs
+      - ./logs:/app/logs
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  ravendb-data:

@@ -40,15 +40,12 @@ async def retrieve_document_chunks(
         collection: Optional collection name to filter by (None = search all)
     """
     logger.debug(
-        f"MCP Tool: Parameters - query='{query[:100]}...', "
-        f"top_k={top_k}, collection={collection}"
+        f"MCP Tool: Parameters - query='{query[:100]}...', top_k={top_k}, collection={collection}"
     )
 
     try:
         results = search_documents(query=query, top_k=top_k, collection=collection)
-        logger.info(
-            f"✅ MCP Tool: Returning {len(results)} formatted results to MCP client"
-        )
+        logger.info(f"✅ MCP Tool: Returning {len(results)} formatted results to MCP client")
         return results
     except Exception as e:
         error_msg = f"Unexpected error: {type(e).__name__}: {e}"
@@ -98,13 +95,10 @@ async def store_document_chunks(
                 raise ValueError(f"Chunk {i} missing required field 'chunk_index'")
 
         # Store chunks with embeddings
-        chunks_stored = store_chunks_with_embeddings(
-            chunks=chunks, collection=collection
-        )
+        chunks_stored = store_chunks_with_embeddings(chunks=chunks, collection=collection)
 
         logger.info(
-            f"✅ MCP Tool: Successfully stored {chunks_stored} chunks "
-            f"in collection '{collection}'"
+            f"✅ MCP Tool: Successfully stored {chunks_stored} chunks in collection '{collection}'"
         )
 
         return {

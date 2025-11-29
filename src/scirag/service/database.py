@@ -117,17 +117,20 @@ def ensure_index_exists(store: DocumentStore) -> None:
 
     # Use CreateField to explicitly create the vector field in the map
     # This tells RavenDB this is a vector field for KNN search
+    # Using 'docs' without collection name indexes ALL documents with embedding field
     index_definition.maps = {
-        """from chunk in docs.DocumentChunks
+        """from chunk in docs
+        where chunk.embedding != null
         select new {
             source_filename = chunk.source_filename,
             chunk_index = chunk.chunk_index,
             text = chunk.text,
+            collection = chunk.collection,
             embedding = CreateField("embedding", chunk.embedding, new CreateFieldOptions { Storage = FieldStorage.Yes, Indexing = FieldIndexing.No })
         }"""
     }
 
-    vector_options = VectorOptions(dimensions=768)
+    vector_options = VectorOptions(dimensions=int(os.getenv("EMBEDDING_DIMENSIONS", "768")))
 
     index_definition.fields = {
         "embedding": IndexFieldOptions(
@@ -310,8 +313,7 @@ def search_documents(
                 try:
                     query_base = session.query_collection(coll, object_type=dict)
                     coll_results = list(
-                        query_base
-                        .vector_search("embedding", query_embedding)
+                        query_base.vector_search("embedding", query_embedding)
                         .order_by_score()
                         .take(top_k)
                     )
@@ -349,16 +351,18 @@ def search_documents(
                 result_embedding = result.get("embedding", [])
                 score = cosine_similarity(query_embedding, result_embedding)
 
-            formatted_results.append({
-                "source": result.get("source_filename", "Unknown"),
-                "content": result.get("text", ""),
-                "chunk_index": result.get("chunk_index", 0),
-                "score": score,
-                "metadata": result.get("metadata", {}),
-                "collection": metadata.get(
-                    "@collection", result.get("collection", "DocumentChunks")
-                ),
-            })
+            formatted_results.append(
+                {
+                    "source": result.get("source_filename", "Unknown"),
+                    "content": result.get("text", ""),
+                    "chunk_index": result.get("chunk_index", 0),
+                    "score": score,
+                    "metadata": result.get("metadata", {}),
+                    "collection": metadata.get(
+                        "@collection", result.get("collection", "DocumentChunks")
+                    ),
+                }
+            )
 
         return formatted_results
 
@@ -387,9 +391,7 @@ def get_collections(url: str | None = None, database: str | None = None) -> list
 
     try:
         # Use RavenDB REST API to get collection statistics
-        response = requests.get(
-            f"{url}/databases/{database}/collections/stats", timeout=10
-        )
+        response = requests.get(f"{url}/databases/{database}/collections/stats", timeout=10)
         response.raise_for_status()
 
         data = response.json()

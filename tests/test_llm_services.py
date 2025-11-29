@@ -105,10 +105,12 @@ class TestOllamaService:
         mock_response = {"embeddings": [[0.1, 0.2, 0.3]]}
         service.client.embed = MagicMock(return_value=mock_response)
 
-        embeddings = service.generate_embeddings(["test text"])
+        # Clear EMBEDDING_MODEL env to test default
+        with patch.dict(os.environ, {}, clear=True):
+            embeddings = service.generate_embeddings(["test text"])
 
         assert len(embeddings) == 1
-        # Should use default model "nomic-embed-text"
+        # Should use default model "nomic-embed-text" when EMBEDDING_MODEL env is not set
         service.client.embed.assert_called_once_with(model="nomic-embed-text", input="test text")
 
     @pytest.mark.asyncio
@@ -137,9 +139,10 @@ class TestGetLLMService:
         mock_service = MagicMock()
         mock_ollama_class.return_value = mock_service
 
+        # Need to explicitly set LLM_SERVICE=ollama (or unset it) to get OllamaService
         with patch.dict(
             os.environ,
-            {"OLLAMA_HOST": "http://env-host:11434", "LLM_MODEL": "env-model"},
+            {"OLLAMA_HOST": "http://env-host:11434", "LLM_MODEL": "env-model", "LLM_SERVICE": "ollama"},
         ):
             service = get_llm_service()
 
@@ -170,9 +173,10 @@ class TestGetLLMService:
         mock_service = MagicMock()
         mock_ollama_class.return_value = mock_service
 
+        # Need to set LLM_SERVICE=ollama to ensure OllamaService is selected
         with patch.dict(
             os.environ,
-            {"OLLAMA_HOST": "http://env-host:11434", "LLM_MODEL": "env-model"},
+            {"OLLAMA_HOST": "http://env-host:11434", "LLM_MODEL": "env-model", "LLM_SERVICE": "ollama"},
         ):
             # Only override host, model should come from env
             config = {"host": "http://custom:11434"}

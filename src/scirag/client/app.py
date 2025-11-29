@@ -122,6 +122,7 @@ def list_collections_endpoint():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
+
             async def get_collections_via_mcp():
                 client = Client(local_mcp_server_url)
                 async with client:
@@ -191,11 +192,13 @@ def upload_documents():
                 continue
 
             if not allowed_file(file.filename):
-                results.append({
-                    "filename": file.filename,
-                    "status": "error",
-                    "error": "File type not allowed. Only PDF files are accepted."
-                })
+                results.append(
+                    {
+                        "filename": file.filename,
+                        "status": "error",
+                        "error": "File type not allowed. Only PDF files are accepted.",
+                    }
+                )
                 continue
 
             try:
@@ -213,12 +216,13 @@ def upload_documents():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
+
                     async def store_via_mcp():
                         client = Client(local_mcp_server_url)
                         async with client:
                             result = await client.call_tool(
                                 "store_document_chunks",
-                                {"chunks": chunks, "collection": collection}
+                                {"chunks": chunks, "collection": collection},
                             )
                             if hasattr(result, "content") and result.content:
                                 if isinstance(result.content, list):
@@ -235,38 +239,34 @@ def upload_documents():
                         f"✅ Stored {store_result.get('chunks_stored', 0)} chunks "
                         f"for {filename} in collection '{collection}'"
                     )
-                    results.append({
-                        "filename": filename,
-                        "chunks": store_result.get("chunks_stored", len(chunks)),
-                        "status": "success"
-                    })
+                    results.append(
+                        {
+                            "filename": filename,
+                            "chunks": store_result.get("chunks_stored", len(chunks)),
+                            "status": "success",
+                        }
+                    )
                     success_count += 1
                 else:
                     error_msg = store_result.get("message", "Unknown error")
                     logger.error(f"❌ Failed to store chunks: {error_msg}")
-                    results.append({
-                        "filename": filename,
-                        "status": "error",
-                        "error": error_msg
-                    })
+                    results.append({"filename": filename, "status": "error", "error": error_msg})
 
                 # Clean up temporary file
                 filepath.unlink()
 
             except Exception as e:
                 logger.error(f"❌ Error processing {file.filename}: {e}", exc_info=True)
-                results.append({
-                    "filename": file.filename,
-                    "status": "error",
-                    "error": str(e)
-                })
+                results.append({"filename": file.filename, "status": "error", "error": str(e)})
 
-        return jsonify({
-            "success": success_count > 0,
-            "message": f"Successfully ingested {success_count} of {len(files)} documents",
-            "collection": collection,
-            "details": results
-        })
+        return jsonify(
+            {
+                "success": success_count > 0,
+                "message": f"Successfully ingested {success_count} of {len(files)} documents",
+                "collection": collection,
+                "details": results,
+            }
+        )
 
     except Exception as e:
         logger.error(f"❌ Error in upload handler: {e}", exc_info=True)
@@ -324,9 +324,7 @@ def chat():
                     tool_params = {"query": user_query, "top_k": top_k}
                     if collection:
                         tool_params["collection"] = collection
-                    result = await client.call_tool(
-                        "retrieve_document_chunks", tool_params
-                    )
+                    result = await client.call_tool("retrieve_document_chunks", tool_params)
                     # Extract content from CallToolResult
                     # result.content is a list of TextContent objects
                     if hasattr(result, "content") and result.content:
@@ -411,6 +409,19 @@ def health():
             "llm_service": "initialized" if llm_service else "not initialized",
         }
     )
+
+
+def create_app():
+    """Factory function for creating the Flask application.
+
+    This function is used by WSGI servers like gunicorn to create the app.
+    It initializes services before returning the app instance.
+
+    Returns:
+        Flask: The configured Flask application instance
+    """
+    initialize_services()
+    return app
 
 
 def main() -> None:

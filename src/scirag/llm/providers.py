@@ -116,12 +116,13 @@ class OllamaService:
 
         Args:
             texts: List of text strings to embed
-            model: Optional embedding model name. If None, uses a default model.
+            model: Optional embedding model name. If None, uses EMBEDDING_MODEL env var
+                   or defaults to 'nomic-embed-text'.
 
         Returns:
             list[list[float]]: List of embedding vectors
         """
-        embedding_model = model or "nomic-embed-text"
+        embedding_model = model or os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
         embeddings = []
 
         for text in texts:
@@ -194,12 +195,13 @@ class GeminiService:
 
         Args:
             texts: List of text strings to embed
-            model: Optional embedding model name. If None, uses 'text-embedding-004'.
+            model: Optional embedding model name. If None, uses EMBEDDING_MODEL env var
+                   or defaults to 'text-embedding-004'.
 
         Returns:
             list[list[float]]: List of embedding vectors
         """
-        embedding_model = model or "text-embedding-004"
+        embedding_model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-004")
         embeddings = []
 
         for text in texts:
@@ -220,7 +222,7 @@ def get_llm_service(config: dict | None = None) -> LLMService:
     Args:
         config: Optional configuration dictionary. If None, uses environment variables.
                 Expected keys:
-                - 'service': Service type (default: "ollama")
+                - 'service': Service type (default: from LLM_SERVICE env, or "ollama")
                 - 'host': Ollama host URL (default: from OLLAMA_HOST env)
                 - 'model': Model name (default: from LLM_MODEL env)
 
@@ -230,7 +232,8 @@ def get_llm_service(config: dict | None = None) -> LLMService:
     if config is None:
         config = {}
 
-    service_type = config.get("service", "ollama")
+    # Read service type from config, then env, then default to ollama
+    service_type = config.get("service", os.getenv("LLM_SERVICE", "ollama"))
 
     if service_type == "ollama":
         host = config.get("host", os.getenv("OLLAMA_HOST", "http://localhost:11434"))

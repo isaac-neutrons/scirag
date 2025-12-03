@@ -15,13 +15,7 @@ from scirag.llm.providers import (
 class TestOllamaService:
     """Tests for OllamaService class."""
 
-    def test_init(self):
-        """Test OllamaService initialization."""
-        service = OllamaService(host="http://test:11434", model="test-model")
-
-        assert service.host == "http://test:11434"
-        assert service.model == "test-model"
-        assert service.client is not None
+    # Removed test_init - trivial test that only verifies constructor assignments work
 
     @pytest.mark.asyncio
     async def test_generate_response_success(self):
@@ -74,6 +68,51 @@ class TestOllamaService:
 
         assert response == "I am a helpful assistant focused on science."
         service.client.chat.assert_called_once_with(model="test-model", messages=messages)
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ollama
+    def test_generate_embeddings_real_ollama(self, ollama_service):
+        """Test generating embeddings with real Ollama service."""
+        texts = ["Python programming", "Machine learning", "Data science"]
+        embeddings = ollama_service.generate_embeddings(texts, "nomic-embed-text")
+        
+        # Verify we got embeddings for all texts
+        assert len(embeddings) == 3
+        
+        # Verify embedding structure (nomic-embed-text produces 768-dim vectors)
+        for embedding in embeddings:
+            assert isinstance(embedding, list)
+            assert len(embedding) == 768
+            assert all(isinstance(x, (int, float)) for x in embedding)
+        
+        # Verify embeddings are different for different texts
+        assert embeddings[0] != embeddings[1]
+        assert embeddings[1] != embeddings[2]
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ollama
+    def test_generate_embeddings_similarity(self, ollama_service):
+        """Test that similar texts have similar embeddings."""
+        from scirag.service.database import cosine_similarity
+        
+        # Similar texts
+        text1 = "Python programming language"
+        text2 = "Programming in Python"
+        # Dissimilar text
+        text3 = "Cooking delicious recipes"
+        
+        embeddings = ollama_service.generate_embeddings(
+            [text1, text2, text3], 
+            "nomic-embed-text"
+        )
+        
+        # Calculate similarities
+        sim_1_2 = cosine_similarity(embeddings[0], embeddings[1])
+        sim_1_3 = cosine_similarity(embeddings[0], embeddings[2])
+        
+        # Similar texts should have higher similarity than dissimilar texts
+        assert sim_1_2 > sim_1_3
+        assert sim_1_2 > 0.5  # Related texts should have decent similarity
 
     def test_generate_embeddings_multiple_texts(self):
         """Test generating embeddings for multiple texts with OllamaService."""
@@ -241,17 +280,7 @@ class TestLLMServiceProtocol:
 class TestGeminiService:
     """Tests for GeminiService class."""
 
-    @patch("scirag.llm.providers.genai.Client")
-    def test_init(self, mock_client_class):
-        """Test GeminiService initialization."""
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-
-        service = GeminiService(model="gemini-2.5-flash")
-
-        assert service.model == "gemini-2.5-flash"
-        assert service.client is mock_client
-        mock_client_class.assert_called_once()
+    # Removed test_init - trivial test that only verifies constructor assignments work
 
     @pytest.mark.asyncio
     @patch("scirag.llm.providers.genai.Client")

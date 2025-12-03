@@ -1,0 +1,24 @@
+{
+  "description": "Sample embeddings for testing vector search and similarity calculations",
+  "model": "nomic-embed-text",
+  "embedding_dim": 768,
+  "samples": [
+    {
+      "text": "Python programming for data analysis",
+      "embedding": [0.1, 0.2, 0.3, 0.15, -0.1, 0.05, 0.25, -0.05]
+    },
+    {
+      "text": "Machine learning in scientific research",
+      "embedding": [0.12, 0.18, 0.28, 0.14, -0.08, 0.06, 0.22, -0.04]
+    },
+    {
+      "text": "Cooking recipes and food preparation",
+      "embedding": [-0.15, -0.25, 0.05, -0.1, 0.2, -0.3, 0.1, 0.15]
+    },
+    {
+      "text": "Vector databases for semantic search",
+      "embedding": [0.11, 0.21, 0.29, 0.16, -0.09, 0.04, 0.24, -0.06]
+    }
+  ],
+  "note": "These are simplified 8-dimensional embeddings for testing. Real nomic-embed-text produces 768-dimensional vectors."
+}

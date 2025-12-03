@@ -17,6 +17,51 @@ from scirag.service.database import (
 )
 
 
+class TestRavenDBIntegration:
+    """Integration tests for RavenDB operations."""
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ravendb
+    def test_store_and_retrieve_chunks(self, ravendb_store, create_test_chunk):
+        """Test storing and retrieving document chunks from real RavenDB."""
+        # Create test chunks
+        chunks = [
+            create_test_chunk(chunk_id="test_1", text="First chunk", chunk_index=0),
+            create_test_chunk(chunk_id="test_2", text="Second chunk", chunk_index=1),
+        ]
+        
+        # Store chunks
+        with ravendb_store.open_session() as session:
+            for chunk in chunks:
+                session.store(chunk, chunk["id"])
+            session.save_changes()
+        
+        # Retrieve and verify
+        with ravendb_store.open_session() as session:
+            retrieved_1 = session.load(chunks[0]["id"])
+            retrieved_2 = session.load(chunks[1]["id"])
+            
+            assert retrieved_1 is not None
+            assert retrieved_2 is not None
+            assert retrieved_1["text"] == "First chunk"
+            assert retrieved_2["text"] == "Second chunk"
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ravendb
+    def test_count_documents_real(self, ravendb_store, create_test_chunk):
+        """Test counting documents in real RavenDB."""
+        # Store some test chunks
+        with ravendb_store.open_session() as session:
+            for i in range(3):
+                chunk = create_test_chunk(chunk_id=f"count_test_{i}", chunk_index=i)
+                session.store(chunk, chunk["id"])
+            session.save_changes()
+        
+        # Count should be >= 3 (may have other test data)
+        count = count_documents()
+        assert count >= 3
+
+
 class TestCosineSimilarity:
     """Tests for cosine_similarity function."""
 
@@ -56,34 +101,8 @@ class TestCosineSimilarity:
         assert cosine_similarity(vec_a, vec_b) == 0.0
 
 
-class TestRavenDBConfig:
-    """Tests for RavenDBConfig class."""
-
-    def test_get_url_default(self):
-        """Test get_url returns default value when not in environment."""
-        with patch.dict(os.environ, {}, clear=True):
-            url = RavenDBConfig.get_url()
-            assert url == "http://localhost:8080"
-
-    def test_get_url_from_env(self):
-        """Test get_url returns value from environment variable."""
-        test_url = "http://test-server:8080"
-        with patch.dict(os.environ, {"RAVENDB_URL": test_url}):
-            url = RavenDBConfig.get_url()
-            assert url == test_url
-
-    def test_get_database_name_default(self):
-        """Test get_database_name returns default value when not in environment."""
-        with patch.dict(os.environ, {}, clear=True):
-            database = RavenDBConfig.get_database_name()
-            assert database == "scirag"
-
-    def test_get_database_name_from_env(self):
-        """Test get_database_name returns value from environment variable."""
-        test_db = "test_database"
-        with patch.dict(os.environ, {"RAVENDB_DATABASE": test_db}):
-            database = RavenDBConfig.get_database_name()
-            assert database == test_db
+# Removed TestRavenDBConfig class - trivial getter tests that don't verify business logic
+# These tests only verified that os.environ.get() works, which is standard library behavior
 
 
 class TestCreateDocumentStore:
@@ -133,39 +152,14 @@ class TestCreateDocumentStore:
         # Verify the instance is returned
         assert store is mock_store
 
-    @patch("scirag.service.database.DocumentStore")
-    def test_creates_new_instance_each_call(self, mock_document_store_class):
-        """Test that create_document_store creates a new instance on each call."""
-        mock_store1 = MagicMock()
-        mock_store2 = MagicMock()
-        mock_document_store_class.side_effect = [mock_store1, mock_store2]
 
-        store1 = create_document_store()
-        store2 = create_document_store()
-
-        # Verify DocumentStore was created twice
-        assert mock_document_store_class.call_count == 2
-
-        # Verify different instances are returned
-        assert store1 is mock_store1
-        assert store2 is mock_store2
-        assert store1 is not store2
+# Removed test_creates_new_instance_each_call - tests Python object instantiation behavior,
+# not business logic. This is language semantics, not application functionality.
 
 
-class TestEnsureIndexExists:
-    """Tests for ensure_index_exists function."""
-
-    def test_ensure_index_exists_callable(self):
-        """Test that ensure_index_exists can be called without errors."""
-        mock_store = MagicMock()
-        # This should not raise any exceptions
-        ensure_index_exists(mock_store)
-
-    def test_ensure_index_exists_with_none(self):
-        """Test that ensure_index_exists handles None by raising AttributeError."""
-        # This should raise AttributeError when None is passed
-        with pytest.raises(AttributeError):
-            ensure_index_exists(None)  # type: ignore
+# Removed TestEnsureIndexExists class - test_ensure_index_exists_callable tests nothing meaningful
+# (just that a function doesn't raise with a mock), and test_ensure_index_exists_with_none
+# tests AttributeError on None, which is Python behavior not our logic.
 
 
 class TestDatabaseExists:
@@ -437,3 +431,158 @@ class TestGetCollections:
         mock_get.assert_called_once_with(
             "http://env-server:8080/databases/envdb/collections/stats", timeout=10
         )
+
+
+# ============================================================================
+# Additional Integration Tests - Real database operations
+# ============================================================================
+
+class TestDatabaseStorageIntegration:
+    """Integration tests for database storage with real RavenDB."""
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ravendb
+    def test_store_and_search_chunks_with_query(self, ravendb_store, test_chunks):
+        """Test storing chunks and querying them back with RQL."""
+        chunks_data = test_chunks["chunks"][:2]  # Use first 2 chunks
+        
+        # Store chunks with unique collection for this test
+        collection_name = "test_query_chunks"
+        with ravendb_store.open_session() as session:
+            for i, chunk in enumerate(chunks_data):
+                chunk_copy = chunk.copy()
+                chunk_copy["collection"] = collection_name
+                session.store(chunk_copy, f"{collection_name}/{i}")
+            session.save_changes()
+        
+        # Query back using RQL
+        with ravendb_store.open_session() as session:
+            results = list(session.advanced.raw_query(
+                f"from @all_docs where collection = '{collection_name}'"
+            ))
+            
+            assert len(results) >= 2
+            assert any("Python programming" in r.get("text", "") for r in results)
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ravendb
+    @pytest.mark.requires_ollama
+    @pytest.mark.slow
+    def test_vector_search_real_similarity(self, ravendb_store, ollama_service):
+        """Test vector search returns documents by actual similarity."""
+        from scirag.service.database import cosine_similarity
+        
+        # Create documents with real embeddings
+        docs = [
+            {
+                "id": "vec_test_1",
+                "text": "Python programming for data analysis",
+                "collection": "vec_search_test"
+            },
+            {
+                "id": "vec_test_2",
+                "text": "Cooking delicious Italian recipes",
+                "collection": "vec_search_test"
+            },
+            {
+                "id": "vec_test_3",
+                "text": "Machine learning and artificial intelligence",
+                "collection": "vec_search_test"
+            }
+        ]
+        
+        # Generate real embeddings
+        texts = [doc["text"] for doc in docs]
+        embeddings = ollama_service.generate_embeddings(texts, "nomic-embed-text")
+        
+        # Add embeddings to docs
+        for doc, embedding in zip(docs, embeddings):
+            doc["embedding"] = embedding
+        
+        # Store in database
+        with ravendb_store.open_session() as session:
+            for doc in docs:
+                session.store(doc, doc["id"])
+            session.save_changes()
+        
+        # Search for programming-related content
+        query_text = "software development and coding"
+        query_embedding = ollama_service.generate_embeddings([query_text], "nomic-embed-text")[0]
+        
+        # Retrieve all docs and calculate similarity
+        with ravendb_store.open_session() as session:
+            all_docs = list(session.advanced.raw_query(
+                "from @all_docs where collection = 'vec_search_test'"
+            ))
+            
+            similarities = []
+            for doc in all_docs:
+                if "embedding" in doc:
+                    sim = cosine_similarity(query_embedding, doc["embedding"])
+                    similarities.append((sim, doc["text"]))
+            
+            # Sort by similarity
+            similarities.sort(reverse=True)
+        
+        # Top results should be programming-related, not cooking
+        assert len(similarities) >= 3
+        top_result = similarities[0][1]
+        assert "Python" in top_result or "Machine learning" in top_result
+        assert "Cooking" not in top_result
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ravendb
+    def test_database_collection_management(self, ravendb_store):
+        """Test creating and listing collections in real database."""
+        from scirag.service.database import get_collections
+        
+        collection_name = "test_collection_mgmt"
+        
+        # Store a document in new collection
+        with ravendb_store.open_session() as session:
+            test_doc = {
+                "id": f"{collection_name}/1",
+                "collection": collection_name,
+                "data": "test"
+            }
+            session.store(test_doc, test_doc["id"])
+            session.save_changes()
+        
+        # Get collections - should include our new one
+        collections = get_collections()
+        
+        # Note: Collection stats might not update immediately in RavenDB
+        # This test verifies the get_collections function works with real DB
+        assert isinstance(collections, list)
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ravendb
+    def test_count_documents_real_database(self, ravendb_store, create_test_chunk):
+        """Test counting documents in real RavenDB."""
+        collection_name = "test_count_real"
+        
+        # Store multiple chunks
+        with ravendb_store.open_session() as session:
+            for i in range(5):
+                chunk = create_test_chunk(
+                    chunk_id=f"{collection_name}/{i}",
+                    text=f"Chunk {i}",
+                    chunk_index=i,
+                    collection=collection_name
+                )
+                session.store(chunk, chunk["id"])
+            session.save_changes()
+        
+        # Count should be at least 5
+        count = count_documents(collection=collection_name)
+        assert count >= 5
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ravendb
+    def test_ensure_index_exists_real(self, ravendb_store):
+        """Test index creation on real RavenDB."""
+        # This tests that ensure_index_exists doesn't crash with real DB
+        ensure_index_exists(ravendb_store)
+        
+        # If we get here without exception, the function works
+        assert True

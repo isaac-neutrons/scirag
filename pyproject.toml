@@ -55,6 +55,15 @@ where = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "--cov=scirag --cov-report=html --cov-report=term-missing"
+filterwarnings = [
+    "ignore::RuntimeWarning:.*coroutine.*was never awaited",
+]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "requires_ollama: marks tests that require Ollama server to be running",
+    "requires_ravendb: marks tests that require RavenDB server to be running",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 
 [tool.ruff]
 line-length = 100

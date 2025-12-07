@@ -278,3 +278,50 @@ html, body {
 .border-dashed {
     border-style: dashed !important;
 }
+
+/* MCP Server Popover Styles */
+.mcp-server-badge {
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.mcp-server-badge:hover {
+    transform: scale(1.05);
+}
+
+.popover {
+    max-width: 350px;
+}
+
+.popover-body {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.tool-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.tool-list li {
+    padding: 6px 10px;
+    border-bottom: 1px solid #e9ecef;
+    font-size: 0.9rem;
+}
+
+.tool-list li:last-child {
+    border-bottom: none;
+}
+
+.tool-name {
+    font-weight: 600;
+    color: #0d6efd;
+    display: block;
+}
+
+.tool-desc {
+    color: #6c757d;
+    font-size: 0.8rem;
+    margin-top: 2px;
+}

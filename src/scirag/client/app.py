@@ -411,6 +411,88 @@ def health():
     )
 
 
+@app.route("/api/mcp-status", methods=["GET"])
+def get_mcp_status():
+    """Get status of all configured MCP servers.
+
+    Returns:
+        JSON response with connected and failed MCP servers
+    """
+    logger.info("🔌 Checking MCP server status...")
+
+    connected_servers = []
+    failed_servers = []
+
+    # Check local MCP server (for document retrieval)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+
+        async def check_mcp_server(url: str) -> dict:
+            """Check if an MCP server is reachable."""
+            try:
+                client = Client(url)
+                async with client:
+                    # Try to list tools to verify connection
+                    tools = await client.list_tools()
+                    tool_names = [tool.name for tool in tools] if tools else []
+                    # Get server name from initialize_result if available
+                    server_name = None
+                    if (
+                        client.initialize_result
+                        and client.initialize_result.serverInfo
+                    ):
+                        server_name = client.initialize_result.serverInfo.name
+                    return {
+                        "url": url,
+                        "status": "connected",
+                        "tools": tool_names,
+                        "server_name": server_name,
+                    }
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to connect to MCP server {url}: {e}")
+                return {
+                    "url": url,
+                    "status": "failed",
+                    "error": str(e),
+                }
+
+        # Check local MCP server
+        if local_mcp_server_url:
+            result = loop.run_until_complete(check_mcp_server(local_mcp_server_url))
+            # Use server-reported name if available, otherwise fallback
+            result["name"] = result.get("server_name") or "Local Document Server"
+            result["type"] = "local"
+            if result["status"] == "connected":
+                connected_servers.append(result)
+            else:
+                failed_servers.append(result)
+
+        # Check tool MCP servers
+        for url in mcp_tool_servers:
+            result = loop.run_until_complete(check_mcp_server(url))
+            # Use server-reported name if available, otherwise fallback to URL-based name
+            fallback_name = f"Tool Server ({url.split('/')[-2] if '/' in url else url})"
+            result["name"] = result.get("server_name") or fallback_name
+            result["type"] = "tool"
+            if result["status"] == "connected":
+                connected_servers.append(result)
+            else:
+                failed_servers.append(result)
+
+    finally:
+        loop.close()
+
+    logger.info(f"✅ Connected: {len(connected_servers)}, Failed: {len(failed_servers)}")
+    return jsonify(
+        {
+            "connected": connected_servers,
+            "failed": failed_servers,
+            "total_configured": len(mcp_tool_servers) + (1 if local_mcp_server_url else 0),
+        }
+    )
+
+
 def create_app():
     """Factory function for creating the Flask application.
 

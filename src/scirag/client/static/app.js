@@ -6,9 +6,10 @@ const sendButton = document.getElementById('sendButton');
 let isWaitingForResponse = false;
 let retrievedSources = []; // Store sources from latest query
 
-// Load collections on page load
+// Load collections and MCP status on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadCollections();
+    loadMcpStatus();
 });
 
 // Load available collections into the dropdown
@@ -312,6 +313,114 @@ function formatDate(timestamp) {
     if (!timestamp) return 'N/A';
     const date = new Date(timestamp * 1000);
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+}
+
+// Load MCP server status
+async function loadMcpStatus() {
+    const statusDiv = document.getElementById('mcpServerStatus');
+    if (!statusDiv) return;
+
+    try {
+        const response = await fetch('/api/mcp-status');
+        const data = await response.json();
+
+        let html = '<div class="d-flex flex-wrap align-items-center gap-1">';
+
+        // Connected servers
+        if (data.connected && data.connected.length > 0) {
+            data.connected.forEach((server, index) => {
+                const toolCount = server.tools ? server.tools.length : 0;
+                const popoverId = `mcp-popover-${index}`;
+                
+                // Build tools list HTML for popover content
+                let toolsContent = '';
+                if (server.tools && server.tools.length > 0) {
+                    toolsContent = '<ul class=&quot;tool-list&quot;>';
+                    server.tools.forEach(tool => {
+                        toolsContent += `<li><span class=&quot;tool-name&quot;><i class=&quot;bi bi-gear-fill&quot;></i> ${escapeHtml(tool)}</span></li>`;
+                    });
+                    toolsContent += '</ul>';
+                } else {
+                    toolsContent = '<span class=&quot;text-muted&quot;>No tools available</span>';
+                }
+                
+                html += `
+                    <span class="badge bg-success mcp-server-badge" 
+                          id="${popoverId}"
+                          data-bs-toggle="popover" 
+                          data-bs-trigger="hover focus"
+                          data-bs-placement="top"
+                          data-bs-html="true"
+                          data-bs-title="<i class='bi bi-tools'></i> ${escapeHtml(server.name)} Tools"
+                          data-bs-content="${toolsContent}">
+                        <i class="bi bi-check-circle-fill"></i> ${escapeHtml(server.name)}
+                        <span class="badge bg-light text-success ms-1">${toolCount} tools</span>
+                    </span>
+                `;
+            });
+        }
+
+        // Failed servers - show in red to indicate they were expected but unavailable
+        if (data.failed && data.failed.length > 0) {
+            data.failed.forEach((server, index) => {
+                const errorMessage = server.error || 'Connection failed';
+                const popoverId = `mcp-failed-popover-${index}`;
+                const serverName = server.name || server.url;
+                const errorContent = `<div class=&quot;small&quot;><strong>Server:</strong> ${escapeHtml(serverName)}<br><strong>URL:</strong> ${escapeHtml(server.url)}<br><strong>Error:</strong> ${escapeHtml(errorMessage)}</div>`;
+                
+                html += `
+                    <span class="badge bg-danger mcp-server-badge"
+                          id="${popoverId}"
+                          data-bs-toggle="popover"
+                          data-bs-trigger="hover focus"
+                          data-bs-placement="top"
+                          data-bs-html="true"
+                          data-bs-title="<i class='bi bi-exclamation-triangle-fill'></i> Server Unavailable"
+                          data-bs-content="${errorContent}">
+                        <i class="bi bi-x-circle-fill"></i> ${escapeHtml(serverName)}
+                        <span class="badge bg-light text-danger ms-1">offline</span>
+                    </span>
+                `;
+            });
+        }
+
+        html += '</div>';
+
+        // No servers configured
+        if ((!data.connected || data.connected.length === 0) && 
+            (!data.failed || data.failed.length === 0)) {
+            html = '<span class="text-muted small"><i class="bi bi-info-circle"></i> No MCP servers configured</span>';
+        }
+
+        statusDiv.innerHTML = html;
+        
+        // Initialize Bootstrap popovers for MCP server badges
+        initMcpPopovers();
+        
+    } catch (error) {
+        console.error('Failed to load MCP status:', error);
+        statusDiv.innerHTML = '<span class="text-warning small"><i class="bi bi-exclamation-triangle"></i> Failed to check server status</span>';
+    }
+}
+
+// Initialize Bootstrap popovers for MCP server badges
+function initMcpPopovers() {
+    const popoverElements = document.querySelectorAll('.mcp-server-badge[data-bs-toggle="popover"]');
+    popoverElements.forEach(el => {
+        new bootstrap.Popover(el, {
+            container: 'body',
+            customClass: 'mcp-tools-popover'
+        });
+    });
+}
+
+// Refresh MCP status
+function refreshMcpStatus() {
+    const statusDiv = document.getElementById('mcpServerStatus');
+    if (statusDiv) {
+        statusDiv.innerHTML = '<span class="text-muted small"><i class="bi bi-hourglass-split"></i> Checking...</span>';
+    }
+    loadMcpStatus();
 }
 
 // Focus input on load

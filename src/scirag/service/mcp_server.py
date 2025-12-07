@@ -22,7 +22,7 @@ load_dotenv()
 logger.debug("Environment variables loaded for MCP server")
 
 # Create FastMCP instance
-mcp = FastMCP("SciRAG Document Retrieval")
+mcp = FastMCP("SciRAG Document Server")
 
 
 @mcp.tool()

@@ -17,6 +17,11 @@ from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
 from scirag.client.ingest import extract_chunks_from_pdf
+from scirag.constants import (
+    DEFAULT_LOCAL_MCP_URL,
+    DEFAULT_OLLAMA_HOST,
+    MAX_UPLOAD_SIZE_BYTES,
+)
 from scirag.llm.providers import get_llm_service
 
 # Configure logging
@@ -38,7 +43,7 @@ logger.debug("Flask app created")
 # Configure upload settings
 UPLOAD_FOLDER = Path(os.getenv("UPLOAD_FOLDER", "/tmp/scirag_uploads"))
 ALLOWED_EXTENSIONS = {"pdf"}
-app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB max file size
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE_BYTES
 
 # Ensure upload folder exists
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
@@ -57,7 +62,7 @@ def initialize_services():
     # Initialize LLM service
     llm_config = {
         "service": os.getenv("LLM_SERVICE", "ollama"),
-        "host": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+        "host": os.getenv("OLLAMA_HOST", DEFAULT_OLLAMA_HOST),
         "model": os.getenv("LLM_MODEL", "llama3"),
     }
     logger.debug(f"LLM config: {llm_config}")
@@ -65,7 +70,7 @@ def initialize_services():
     logger.info("✅ LLM service initialized successfully")
 
     # Store local MCP server URL (client created per-request)
-    local_mcp_server_url = os.getenv("LOCAL_MCP_SERVER_URL", "http://localhost:8001/sse")
+    local_mcp_server_url = os.getenv("LOCAL_MCP_SERVER_URL", DEFAULT_LOCAL_MCP_URL)
     logger.info(f"✅ Local MCP server URL configured: {local_mcp_server_url}")
 
     # Load MCP tool servers for LLM tool use

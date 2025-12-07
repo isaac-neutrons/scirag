@@ -17,6 +17,12 @@ from ravendb.documents.indexes.vector.options import VectorOptions
 from ravendb.documents.operations.indexes import GetIndexNamesOperation, PutIndexesOperation
 from ravendb.serverwide.operations.common import DeleteDatabaseOperation
 
+from scirag.constants import (
+    DEFAULT_EMBEDDING_DIMENSIONS,
+    DEFAULT_RAVENDB_DATABASE,
+    DEFAULT_RAVENDB_URL,
+    get_embedding_model,
+)
 from scirag.llm.providers import get_llm_service
 
 # Load environment variables
@@ -56,7 +62,7 @@ class RavenDBConfig:
         Returns:
             str: RavenDB server URL (default: http://localhost:8080)
         """
-        return os.getenv("RAVENDB_URL", "http://localhost:8080")
+        return os.getenv("RAVENDB_URL", DEFAULT_RAVENDB_URL)
 
     @staticmethod
     def get_database_name() -> str:
@@ -65,7 +71,7 @@ class RavenDBConfig:
         Returns:
             str: Database name (default: scirag)
         """
-        return os.getenv("RAVENDB_DATABASE", "scirag")
+        return os.getenv("RAVENDB_DATABASE", DEFAULT_RAVENDB_DATABASE)
 
 
 def create_document_store(url: str | None = None, database: str | None = None) -> DocumentStore:
@@ -130,7 +136,8 @@ def ensure_index_exists(store: DocumentStore) -> None:
         }"""
     }
 
-    vector_options = VectorOptions(dimensions=int(os.getenv("EMBEDDING_DIMENSIONS", "768")))
+    dimensions = int(os.getenv("EMBEDDING_DIMENSIONS", str(DEFAULT_EMBEDDING_DIMENSIONS)))
+    vector_options = VectorOptions(dimensions=dimensions)
 
     index_definition.fields = {
         "embedding": IndexFieldOptions(
@@ -261,7 +268,7 @@ def search_documents(
         top_k: Number of top results to return (default: 5)
         collection: Collection name to filter by (None or empty = search all collections)
         embedding_model: embedding model name
-            (defaults to EMBEDDING_MODEL env or 'nomic-embed-text')
+            (defaults to EMBEDDING_MODEL env or service-specific default)
         url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
         database: Database name (defaults to value from RavenDBConfig.get_database_name())
 
@@ -276,7 +283,7 @@ def search_documents(
     """
     # Get defaults
     if embedding_model is None:
-        embedding_model = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+        embedding_model = get_embedding_model()
     if url is None:
         url = RavenDBConfig.get_url()
     if database is None:
@@ -423,7 +430,7 @@ def store_chunks_with_embeddings(
             - metadata: Optional dict with additional metadata (file_size, etc.)
         collection: Collection name to store chunks in (default: "DocumentChunks")
         embedding_model: Model to use for embeddings
-            (defaults to EMBEDDING_MODEL env or 'nomic-embed-text')
+            (defaults to EMBEDDING_MODEL env or service-specific default)
         url: RavenDB server URL (defaults to value from RavenDBConfig.get_url())
         database: Database name (defaults to value from RavenDBConfig.get_database_name())
 
@@ -435,7 +442,7 @@ def store_chunks_with_embeddings(
 
     # Get defaults
     if embedding_model is None:
-        embedding_model = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+        embedding_model = get_embedding_model()
     if url is None:
         url = RavenDBConfig.get_url()
     if database is None:

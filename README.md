@@ -205,3 +205,6 @@ curl -X POST http://localhost:5000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"query": "What are the main findings about X?"}'
 ```
+
+### Tool calling information
+https://ai.google.dev/gemini-api/docs/function-calling?example=meeting

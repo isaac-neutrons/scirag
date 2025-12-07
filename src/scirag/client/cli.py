@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from fastmcp import Client
 
 from scirag.client.ingest import extract_chunks_from_pdf
+from scirag.constants import DEFAULT_LOCAL_MCP_URL, get_embedding_model
 from scirag.service.database import (
     count_documents,
     create_database,
@@ -87,7 +88,7 @@ def ingest(
             raise click.Abort()
 
     # Get embedding model for display purposes
-    model = embedding_model or os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
+    model = embedding_model or get_embedding_model()
 
     # Get PDF files
     pdf_files = list(directory.glob("*.pdf"))
@@ -101,7 +102,7 @@ def ingest(
     click.echo()
 
     # Initialize local MCP client
-    local_mcp_server_url = os.getenv("LOCAL_MCP_SERVER_URL", "http://localhost:8001/sse")
+    local_mcp_server_url = os.getenv("LOCAL_MCP_SERVER_URL", DEFAULT_LOCAL_MCP_URL)
 
     # Process each PDF and collect all chunks
     all_chunks = []

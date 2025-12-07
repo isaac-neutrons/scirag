@@ -1,7 +1,8 @@
 """Tests for the llm_services module."""
 
+import asyncio
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -22,8 +23,12 @@ class TestOllamaService:
         """Test successful response generation."""
         service = OllamaService(host="http://test:11434", model="test-model")
 
-        # Mock the client.chat method
-        mock_response = {"message": {"content": "Hello, world!"}}
+        # Mock the client.chat method with ChatResponse-like object
+        mock_message = MagicMock()
+        mock_message.content = "Hello, world!"
+        mock_message.tool_calls = None
+        mock_response = MagicMock()
+        mock_response.message = mock_message
         service.client.chat = MagicMock(return_value=mock_response)
 
         messages = [{"role": "user", "content": "Say hello"}]
@@ -37,8 +42,12 @@ class TestOllamaService:
         """Test response generation with conversation history."""
         service = OllamaService(host="http://test:11434", model="test-model")
 
-        # Mock the client.chat method
-        mock_response = {"message": {"content": "I'm doing well, thanks!"}}
+        # Mock the client.chat method with ChatResponse-like object
+        mock_message = MagicMock()
+        mock_message.content = "I'm doing well, thanks!"
+        mock_message.tool_calls = None
+        mock_response = MagicMock()
+        mock_response.message = mock_message
         service.client.chat = MagicMock(return_value=mock_response)
 
         messages = [
@@ -56,8 +65,12 @@ class TestOllamaService:
         """Test response generation with system message."""
         service = OllamaService(host="http://test:11434", model="test-model")
 
-        # Mock the client.chat method
-        mock_response = {"message": {"content": "I am a helpful assistant focused on science."}}
+        # Mock the client.chat method with ChatResponse-like object
+        mock_message = MagicMock()
+        mock_message.content = "I am a helpful assistant focused on science."
+        mock_message.tool_calls = None
+        mock_response = MagicMock()
+        mock_response.message = mock_message
         service.client.chat = MagicMock(return_value=mock_response)
 
         messages = [
@@ -157,9 +170,16 @@ class TestOllamaService:
         """Test response generation with MCP servers parameter."""
         service = OllamaService(host="http://test:11434", model="test-model")
 
-        # Mock the client.chat method
-        mock_response = {"message": {"content": "Response with tools available"}}
+        # Mock the client.chat method with ChatResponse-like object
+        mock_message = MagicMock()
+        mock_message.content = "Response with tools available"
+        mock_message.tool_calls = None
+        mock_response = MagicMock()
+        mock_response.message = mock_message
         service.client.chat = MagicMock(return_value=mock_response)
+
+        # Mock the discover_mcp_tools method to avoid actual MCP connections
+        service.discover_mcp_tools = AsyncMock(return_value=([], {}))
 
         messages = [{"role": "user", "content": "Use a tool"}]
         mcp_servers = ["http://localhost:8001/sse", "http://localhost:8002/sse"]
@@ -167,6 +187,64 @@ class TestOllamaService:
 
         assert response == "Response with tools available"
         service.client.chat.assert_called_once_with(model="test-model", messages=messages)
+
+    @pytest.mark.asyncio
+    async def test_generate_response_with_tool_calls(self):
+        """Test response generation when the model calls tools."""
+        service = OllamaService(host="http://test:11434", model="test-model")
+
+        # Create mock tool call
+        mock_tool_call = MagicMock()
+        mock_tool_call.function.name = "retrieve_document_chunks"
+        mock_tool_call.function.arguments = {"query": "test query", "top_k": 5}
+
+        # First response has tool calls
+        mock_message_with_tools = MagicMock()
+        mock_message_with_tools.content = ""
+        mock_message_with_tools.tool_calls = [mock_tool_call]
+        mock_message_with_tools.model_dump.return_value = {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"function": {"name": "retrieve_document_chunks"}}],
+        }
+        mock_response_with_tools = MagicMock()
+        mock_response_with_tools.message = mock_message_with_tools
+
+        # Second response is the final answer
+        mock_message_final = MagicMock()
+        mock_message_final.content = "Based on the documents, here is your answer."
+        mock_message_final.tool_calls = None
+        mock_response_final = MagicMock()
+        mock_response_final.message = mock_message_final
+
+        service.client.chat = MagicMock(side_effect=[mock_response_with_tools, mock_response_final])
+
+        # Mock tool discovery to return a tool (using generic format now)
+        mock_tools = [
+            {
+                "name": "retrieve_document_chunks",
+                "description": "Search documents",
+                "parameters": {"type": "object", "properties": {}},
+            }
+        ]
+        mock_registry = {"retrieve_document_chunks": ("http://localhost:8001/sse", MagicMock())}
+        service.discover_mcp_tools = AsyncMock(return_value=(mock_tools, mock_registry))
+
+        # Mock the MCP tool call
+        service.call_mcp_tool = AsyncMock(return_value='[{"content": "test chunk"}]')
+
+        messages = [{"role": "user", "content": "Search for information"}]
+        response = await service.generate_response(messages, mcp_servers=["http://localhost:8001/sse"])
+
+        assert response == "Based on the documents, here is your answer."
+        # Should have called chat twice (initial + after tool results)
+        assert service.client.chat.call_count == 2
+        # Should have called the MCP tool
+        service.call_mcp_tool.assert_called_once_with(
+            "http://localhost:8001/sse",
+            "retrieve_document_chunks",
+            {"query": "test query", "top_k": 5},
+        )
 
 
 class TestGetLLMService:
@@ -289,6 +367,7 @@ class TestGeminiService:
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.text = "Hello, world!"
+        mock_response.candidates = []  # No tool calls
         mock_client.models.generate_content.return_value = mock_response
         mock_client_class.return_value = mock_client
 
@@ -308,6 +387,7 @@ class TestGeminiService:
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.text = "I'm doing well, thanks!"
+        mock_response.candidates = []  # No tool calls
         mock_client.models.generate_content.return_value = mock_response
         mock_client_class.return_value = mock_client
 
@@ -333,6 +413,7 @@ class TestGeminiService:
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.text = "I am a helpful assistant focused on science."
+        mock_response.candidates = []  # No tool calls
         mock_client.models.generate_content.return_value = mock_response
         mock_client_class.return_value = mock_client
 
@@ -370,15 +451,22 @@ class TestGeminiService:
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.text = "Response with tools available"
+        # Mock response without function calls
+        mock_response.candidates = []
         mock_client.models.generate_content.return_value = mock_response
         mock_client_class.return_value = mock_client
 
         service = GeminiService(model="gemini-2.5-flash")
+
+        # Mock the discover_mcp_tools method to avoid actual MCP connections
+        service.discover_mcp_tools = AsyncMock(return_value=([], {}))
+
         messages = [{"role": "user", "content": "Use a tool"}]
         mcp_servers = ["http://localhost:8001/sse", "http://localhost:8002/sse"]
         response = await service.generate_response(messages, mcp_servers=mcp_servers)
 
         assert response == "Response with tools available"
+        # Verify generate_content was called (no tools since discover returned empty)
         mock_client.models.generate_content.assert_called_once_with(
             model="gemini-2.5-flash", contents="Use a tool"
         )

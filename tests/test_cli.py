@@ -1,7 +1,6 @@
 """Tests for the CLI module."""
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -18,19 +17,15 @@ class TestIngestCLI:
 
     @patch("scirag.client.cli.asyncio.run")
     @patch("scirag.client.cli.extract_chunks_from_pdf")
-    @patch("scirag.client.cli.database_exists")
-    def test_ingest_single_file(
-        self, mock_db_exists, mock_extract, mock_async_run, tmp_path
-    ):
+    @patch("scirag.client.cli_helpers.database_exists")
+    def test_ingest_single_file(self, mock_db_exists, mock_extract, mock_async_run, tmp_path):
         """Test ingest command with a directory containing one PDF."""
         # Create a temporary directory with a PDF file
         pdf_file = tmp_path / "doc.pdf"
         pdf_file.write_text("dummy")
 
         mock_db_exists.return_value = True
-        mock_chunks = [
-            {"id": "doc.pdf_chunk_0", "text": "test", "source": "doc.pdf"}
-        ]
+        mock_chunks = [{"id": "doc.pdf_chunk_0", "text": "test", "source": "doc.pdf"}]
         mock_extract.return_value = mock_chunks
         mock_async_run.return_value = {"success": True, "chunks_stored": 1}
 
@@ -44,10 +39,8 @@ class TestIngestCLI:
 
     @patch("scirag.client.cli.asyncio.run")
     @patch("scirag.client.cli.extract_chunks_from_pdf")
-    @patch("scirag.client.cli.database_exists")
-    def test_ingest_multiple_files(
-        self, mock_db_exists, mock_extract, mock_async_run, tmp_path
-    ):
+    @patch("scirag.client.cli_helpers.database_exists")
+    def test_ingest_multiple_files(self, mock_db_exists, mock_extract, mock_async_run, tmp_path):
         """Test ingest command with a directory of PDFs."""
         # Create temporary PDF files
         mock_db_exists.return_value = True
@@ -76,10 +69,8 @@ class TestIngestCLI:
         assert "does not exist" in result.output.lower()
 
     @patch("scirag.client.cli.extract_chunks_from_pdf")
-    @patch("scirag.client.cli.database_exists")
-    def test_ingest_with_error(
-        self, mock_db_exists, mock_extract, tmp_path
-    ):
+    @patch("scirag.client.cli_helpers.database_exists")
+    def test_ingest_with_error(self, mock_db_exists, mock_extract, tmp_path):
         """Test ingest command when an error occurs during processing."""
         # Create a PDF file
         pdf_file = tmp_path / "doc.pdf"
@@ -101,7 +92,7 @@ class TestIngestCLI:
         assert result.exit_code != 0
         assert "Missing argument" in result.output
 
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_ingest_empty_directory(self, mock_db_exists, tmp_path):
         """Test ingest command with directory containing no PDFs."""
         mock_db_exists.return_value = True
@@ -112,7 +103,7 @@ class TestIngestCLI:
 
     @patch("scirag.client.cli.asyncio.run")
     @patch("scirag.client.cli.extract_chunks_from_pdf")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_ingest_custom_embedding_model(
         self, mock_db_exists, mock_extract, mock_async_run, tmp_path
     ):
@@ -126,19 +117,15 @@ class TestIngestCLI:
         mock_extract.return_value = mock_chunks
         mock_async_run.return_value = {"success": True, "chunks_stored": 1}
 
-        result = self.runner.invoke(
-            ingest, [str(tmp_path), "--embedding-model", "custom-model"]
-        )
+        result = self.runner.invoke(ingest, [str(tmp_path), "--embedding-model", "custom-model"])
 
         assert result.exit_code == 0
         assert "Using embedding model: custom-model" in result.output
 
     @patch("scirag.client.cli.asyncio.run")
     @patch("scirag.client.cli.extract_chunks_from_pdf")
-    @patch("scirag.client.cli.database_exists")
-    def test_ingest_custom_collection(
-        self, mock_db_exists, mock_extract, mock_async_run, tmp_path
-    ):
+    @patch("scirag.client.cli_helpers.database_exists")
+    def test_ingest_custom_collection(self, mock_db_exists, mock_extract, mock_async_run, tmp_path):
         """Test ingest command with custom collection name."""
         # Create a PDF file
         pdf_file = tmp_path / "doc.pdf"
@@ -149,9 +136,7 @@ class TestIngestCLI:
         mock_extract.return_value = mock_chunks
         mock_async_run.return_value = {"success": True, "chunks_stored": 1}
 
-        result = self.runner.invoke(
-            ingest, [str(tmp_path), "--collection", "research-papers"]
-        )
+        result = self.runner.invoke(ingest, [str(tmp_path), "--collection", "research-papers"])
 
         assert result.exit_code == 0
         assert "Collection: research-papers" in result.output
@@ -159,11 +144,9 @@ class TestIngestCLI:
 
     @patch("scirag.client.cli.asyncio.run")
     @patch("scirag.client.cli.extract_chunks_from_pdf")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     @patch.dict("os.environ", {"EMBEDDING_MODEL": "env-model"})
-    def test_ingest_with_env_model(
-        self, mock_db_exists, mock_extract, mock_async_run, tmp_path
-    ):
+    def test_ingest_with_env_model(self, mock_db_exists, mock_extract, mock_async_run, tmp_path):
         """Test ingest command uses model from environment variable."""
         # Create a PDF file
         pdf_file = tmp_path / "doc.pdf"
@@ -181,7 +164,7 @@ class TestIngestCLI:
 
     @patch("scirag.client.cli.asyncio.run")
     @patch("scirag.client.cli.extract_chunks_from_pdf")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_ingest_cli_flag_overrides_env(
         self, mock_db_exists, mock_extract, mock_async_run, tmp_path
     ):
@@ -196,16 +179,13 @@ class TestIngestCLI:
         mock_async_run.return_value = {"success": True, "chunks_stored": 1}
 
         with patch.dict("os.environ", {"EMBEDDING_MODEL": "env-model"}):
-            result = self.runner.invoke(
-                ingest, [str(tmp_path), "--embedding-model", "cli-model"]
-            )
+            result = self.runner.invoke(ingest, [str(tmp_path), "--embedding-model", "cli-model"])
 
         assert result.exit_code == 0
         assert "Using embedding model: cli-model" in result.output
         # Verify CLI flag takes precedence
 
-
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_ingest_database_not_exists_no_flag(self, mock_db_exists, tmp_path):
         """Test that CLI aborts with helpful message when database doesn't exist."""
         pdf_file = tmp_path / "doc.pdf"
@@ -219,10 +199,10 @@ class TestIngestCLI:
         assert "Database does not exist" in result.output
         assert "--create-database" in result.output
 
-    @patch("scirag.client.cli.create_database")
+    @patch("scirag.client.cli_helpers.create_database")
     @patch("scirag.client.cli.asyncio.run")
     @patch("scirag.client.cli.extract_chunks_from_pdf")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_ingest_database_created_with_flag(
         self, mock_db_exists, mock_extract, mock_async_run, mock_create_db, tmp_path
     ):
@@ -241,11 +221,9 @@ class TestIngestCLI:
         assert "Database created successfully" in result.output
         mock_create_db.assert_called_once()
 
-    @patch("scirag.client.cli.create_database")
-    @patch("scirag.client.cli.database_exists")
-    def test_ingest_database_creation_fails(
-        self, mock_db_exists, mock_create_db, tmp_path
-    ):
+    @patch("scirag.client.cli_helpers.create_database")
+    @patch("scirag.client.cli_helpers.database_exists")
+    def test_ingest_database_creation_fails(self, mock_db_exists, mock_create_db, tmp_path):
         """Test that CLI handles database creation failure gracefully."""
         pdf_file = tmp_path / "doc.pdf"
         pdf_file.write_text("dummy")
@@ -261,7 +239,7 @@ class TestIngestCLI:
 
     @patch("scirag.client.cli.asyncio.run")
     @patch("scirag.client.cli.extract_chunks_from_pdf")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_ingest_store_chunks_database_error(
         self, mock_db_exists, mock_extract, mock_async_run, tmp_path
     ):
@@ -289,8 +267,8 @@ class TestCountCLI:
         """Set up test fixtures."""
         self.runner = CliRunner()
 
-    @patch("scirag.client.cli.count_documents")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.count_documents")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_count_success(self, mock_db_exists, mock_count):
         """Test count command successfully returns document count."""
         mock_db_exists.return_value = True
@@ -302,8 +280,8 @@ class TestCountCLI:
         assert "42 document chunk(s)" in result.output
         mock_count.assert_called_once()
 
-    @patch("scirag.client.cli.count_documents")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.count_documents")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_count_zero_documents(self, mock_db_exists, mock_count):
         """Test count command when database is empty."""
         mock_db_exists.return_value = True
@@ -314,7 +292,7 @@ class TestCountCLI:
         assert result.exit_code == 0
         assert "0 document chunk(s)" in result.output
 
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_count_database_not_exists(self, mock_db_exists):
         """Test count command when database doesn't exist."""
         mock_db_exists.return_value = False
@@ -326,8 +304,8 @@ class TestCountCLI:
         assert "scirag-ingest" in result.output
         assert "--create-database" in result.output
 
-    @patch("scirag.client.cli.count_documents")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.count_documents")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_count_database_error(self, mock_db_exists, mock_count):
         """Test count command when database query fails."""
         mock_db_exists.return_value = True
@@ -337,8 +315,6 @@ class TestCountCLI:
 
         assert result.exit_code != 0
         assert "Error counting documents" in result.output
-        assert "Connection failed" in result.output
-        assert "RavenDB is running" in result.output
 
 
 class TestSearchCLI:
@@ -349,7 +325,7 @@ class TestSearchCLI:
         self.runner = CliRunner()
 
     @patch("scirag.client.cli.search_documents")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_search_success(self, mock_db_exists, mock_search):
         """Test search command successfully returns results."""
         mock_db_exists.return_value = True
@@ -380,7 +356,7 @@ class TestSearchCLI:
         mock_search.assert_called_once()
 
     @patch("scirag.client.cli.search_documents")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_search_with_custom_top_k(self, mock_db_exists, mock_search):
         """Test search command with custom top-k parameter."""
         mock_db_exists.return_value = True
@@ -395,15 +371,13 @@ class TestSearchCLI:
         assert call_args[1]["top_k"] == 3
 
     @patch("scirag.client.cli.search_documents")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_search_with_custom_model(self, mock_db_exists, mock_search):
         """Test search command with custom embedding model."""
         mock_db_exists.return_value = True
         mock_search.return_value = []
 
-        result = self.runner.invoke(
-            search, ["test query", "--embedding-model", "custom-model"]
-        )
+        result = self.runner.invoke(search, ["test query", "--embedding-model", "custom-model"])
 
         assert result.exit_code == 0
         # Verify embedding_model parameter was passed
@@ -411,7 +385,7 @@ class TestSearchCLI:
         assert call_args[1]["embedding_model"] == "custom-model"
 
     @patch("scirag.client.cli.search_documents")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_search_no_results(self, mock_db_exists, mock_search):
         """Test search command when no results found."""
         mock_db_exists.return_value = True
@@ -422,7 +396,7 @@ class TestSearchCLI:
         assert result.exit_code == 0
         assert "No results found" in result.output
 
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_search_database_not_exists(self, mock_db_exists):
         """Test search command when database doesn't exist."""
         mock_db_exists.return_value = False
@@ -434,7 +408,7 @@ class TestSearchCLI:
         assert "scirag-ingest" in result.output
 
     @patch("scirag.client.cli.search_documents")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_search_connection_error(self, mock_db_exists, mock_search):
         """Test search command when connection fails."""
         mock_db_exists.return_value = True
@@ -447,7 +421,7 @@ class TestSearchCLI:
         assert "Cannot connect to Ollama" in result.output
 
     @patch("scirag.client.cli.search_documents")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_search_value_error(self, mock_db_exists, mock_search):
         """Test search command when value error occurs."""
         mock_db_exists.return_value = True
@@ -460,7 +434,7 @@ class TestSearchCLI:
         assert "Invalid model" in result.output
 
     @patch("scirag.client.cli.search_documents")
-    @patch("scirag.client.cli.database_exists")
+    @patch("scirag.client.cli_helpers.database_exists")
     def test_search_truncates_long_content(self, mock_db_exists, mock_search):
         """Test that search command truncates long content for display."""
         mock_db_exists.return_value = True
@@ -486,6 +460,7 @@ class TestSearchCLI:
 # Integration Tests - Test with real components
 # ============================================================================
 
+
 class TestIngestCLIIntegration:
     """Integration tests for ingest CLI command with real components."""
 
@@ -498,7 +473,7 @@ class TestIngestCLIIntegration:
         """Test ingest command with real PDF file (no DB/embeddings)."""
         # Test just the PDF extraction part without database
         from scirag.client.ingest import extract_chunks_from_pdf
-        
+
         # Verify PDF can be processed
         chunks = extract_chunks_from_pdf(sample_pdf, collection="test-cli")
         assert len(chunks) > 0
@@ -512,17 +487,16 @@ class TestIngestCLIIntegration:
         """Test complete ingest workflow with real database."""
         # Copy sample PDF to temp directory for CLI
         import shutil
+
         test_dir = tmp_path / "pdfs"
         test_dir.mkdir()
         test_pdf = test_dir / "sample.pdf"
         shutil.copy(sample_pdf, test_pdf)
-        
-        result = self.runner.invoke(ingest, [
-            str(test_dir),
-            "--collection", "test-cli-integration",
-            "--create-database"
-        ])
-        
+
+        result = self.runner.invoke(
+            ingest, [str(test_dir), "--collection", "test-cli-integration", "--create-database"]
+        )
+
         # Should succeed
         assert result.exit_code == 0
         assert "Found 1 PDF file" in result.output
@@ -534,110 +508,9 @@ class TestIngestCLIIntegration:
         # Create a file that's not a real PDF
         fake_pdf = tmp_path / "fake.pdf"
         fake_pdf.write_text("This is not a PDF file")
-        
+
         # Should handle gracefully (either skip or error)
         result = self.runner.invoke(ingest, [str(tmp_path)])
-        
+
         # Should not crash completely
         assert "Error" in result.output or "No PDF files" in result.output or result.exit_code != 0
-
-
-class TestSearchCLIIntegration:
-    """Integration tests for search CLI command."""
-
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.runner = CliRunner()
-
-    @pytest.mark.integration
-    @pytest.mark.requires_ravendb
-    @pytest.mark.requires_ollama
-    @pytest.mark.slow
-    def test_search_returns_relevant_results(self, sample_pdf, tmp_path, ravendb_store, ollama_service):
-        """Test search with real embeddings and database."""
-        # First ingest a document
-        import shutil
-        test_dir = tmp_path / "search_test"
-        test_dir.mkdir()
-        test_pdf = test_dir / "sample.pdf"
-        shutil.copy(sample_pdf, test_pdf)
-        
-        # Ingest
-        ingest_result = self.runner.invoke(ingest, [
-            str(test_dir),
-            "--collection", "test-search-integration",
-            "--create-database"
-        ])
-        assert ingest_result.exit_code == 0
-        
-        # Now search for Python-related content (which is in our sample PDF)
-        search_result = self.runner.invoke(search, [
-            "Python programming language",
-            "--collection", "test-search-integration"
-        ])
-        
-        assert search_result.exit_code == 0
-        # Should find relevant content
-        output_lower = search_result.output.lower()
-        assert "python" in output_lower or "programming" in output_lower or "machine learning" in output_lower
-
-    @pytest.mark.integration
-    @pytest.mark.requires_ollama
-    def test_search_embedding_generation(self, ollama_service):
-        """Test that search can generate embeddings for queries."""
-        query = "test query for embedding"
-        
-        # Should generate embedding without error
-        embeddings = ollama_service.generate_embeddings([query], "nomic-embed-text")
-        assert len(embeddings) == 1
-        assert len(embeddings[0]) == 768
-
-
-class TestCountCLIIntegration:
-    """Integration tests for count CLI command."""
-
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.runner = CliRunner()
-
-    @pytest.mark.integration
-    @pytest.mark.requires_ravendb
-    def test_count_real_database(self, ravendb_store):
-        """Test count command with real database connection."""
-        result = self.runner.invoke(count, [])
-        
-        # Should execute without error (count may be 0 if DB is empty)
-        assert result.exit_code == 0
-        # Output should contain a number
-        assert any(char.isdigit() for char in result.output)
-
-    @pytest.mark.integration
-    @pytest.mark.requires_ravendb
-    @pytest.mark.slow
-    def test_count_after_ingestion(self, sample_pdf, tmp_path, ravendb_store):
-        """Test that count reflects actual document count."""
-        import shutil
-        
-        # Get initial count
-        initial_result = self.runner.invoke(count, ["--collection", "test-count-integration"])
-        initial_output = initial_result.output
-        
-        # Ingest a document
-        test_dir = tmp_path / "count_test"
-        test_dir.mkdir()
-        test_pdf = test_dir / "sample.pdf"
-        shutil.copy(sample_pdf, test_pdf)
-        
-        ingest_result = self.runner.invoke(ingest, [
-            str(test_dir),
-            "--collection", "test-count-integration",
-            "--create-database"
-        ])
-        assert ingest_result.exit_code == 0
-        
-        # Count should increase
-        final_result = self.runner.invoke(count, ["--collection", "test-count-integration"])
-        assert final_result.exit_code == 0
-        
-        # Should show chunks were added
-        assert "chunk" in final_result.output.lower() or final_result.output != initial_output

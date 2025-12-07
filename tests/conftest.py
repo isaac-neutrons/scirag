@@ -89,7 +89,7 @@ def ollama_service():
     if not ollama_available():
         pytest.skip("Ollama server not running on localhost:11434")
 
-    from scirag.llm.providers import OllamaService
+    from scirag.llm import OllamaService
 
     return OllamaService(host="http://localhost:11434", model="llama3")
 

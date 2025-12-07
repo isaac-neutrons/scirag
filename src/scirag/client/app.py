@@ -10,17 +10,19 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request
-from werkzeug.utils import secure_filename
+from flask import Flask
 
-from scirag.client.ingest import extract_chunks_from_pdf
-from scirag.constants import (
-    DEFAULT_LOCAL_MCP_URL,
-    DEFAULT_OLLAMA_HOST,
-    MAX_UPLOAD_SIZE_BYTES,
+from scirag.client.routes import (
+    chat_bp,
+    health_bp,
+    init_chat_routes,
+    init_health_routes,
+    init_upload_routes,
+    pages_bp,
+    upload_bp,
 )
-from scirag.llm.providers import get_llm_service
-from scirag.service.mcp_helpers import call_mcp_tool, check_mcp_server, run_async
+from scirag.constants import DEFAULT_LOCAL_MCP_URL, DEFAULT_OLLAMA_HOST, MAX_UPLOAD_SIZE_BYTES
+from scirag.llm import get_llm_service
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "DEBUG")
@@ -40,21 +42,20 @@ logger.debug("Flask app created")
 
 # Configure upload settings
 UPLOAD_FOLDER = Path(os.getenv("UPLOAD_FOLDER", "/tmp/scirag_uploads"))
-ALLOWED_EXTENSIONS = {"pdf"}
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE_BYTES
 
 # Ensure upload folder exists
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 
-# Global service instances
-llm_service = None
-local_mcp_server_url = None
-mcp_tool_servers = []
+# Register blueprints
+app.register_blueprint(pages_bp)
+app.register_blueprint(chat_bp)
+app.register_blueprint(upload_bp)
+app.register_blueprint(health_bp)
 
 
 def initialize_services():
     """Initialize LLM service and MCP server URL on startup."""
-    global llm_service, local_mcp_server_url, mcp_tool_servers
     logger.info("🔧 Initializing services...")
 
     # Initialize LLM service
@@ -67,7 +68,7 @@ def initialize_services():
     llm_service = get_llm_service(llm_config)
     logger.info("✅ LLM service initialized successfully")
 
-    # Store local MCP server URL (client created per-request)
+    # Store local MCP server URL
     local_mcp_server_url = os.getenv("LOCAL_MCP_SERVER_URL", DEFAULT_LOCAL_MCP_URL)
     logger.info(f"✅ Local MCP server URL configured: {local_mcp_server_url}")
 
@@ -80,335 +81,10 @@ def initialize_services():
         mcp_tool_servers = []
         logger.info("ℹ️ No MCP tool servers configured for LLM tool use")
 
-
-def allowed_file(filename: str) -> bool:
-    """Check if the file extension is allowed.
-
-    Args:
-        filename: The filename to check
-
-    Returns:
-        True if extension is allowed, False otherwise
-    """
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
-
-
-@app.route("/")
-def index():
-    """Serve the chat interface web page.
-
-    Returns:
-        HTML page with interactive chat interface
-    """
-    return render_template("chat.html")
-
-
-@app.route("/upload")
-def upload_page():
-    """Serve the document upload page.
-
-    Returns:
-        HTML page with drag-and-drop upload interface
-    """
-    return render_template("upload.html")
-
-
-@app.route("/api/collections", methods=["GET"])
-def list_collections_endpoint():
-    """Get list of existing collection names.
-
-    Returns:
-        JSON response with list of collection names
-    """
-    logger.info("📂 Fetching collection names")
-    try:
-        collections = run_async(call_mcp_tool(local_mcp_server_url, "list_collections"))
-
-        logger.info(f"✅ Found {len(collections)} collections")
-        return jsonify({"success": True, "collections": collections})
-    except Exception as e:
-        logger.warning(f"⚠️ Could not fetch collections: {e}")
-        # Return empty list if database doesn't exist or other error
-        return jsonify({"success": True, "collections": []})
-
-
-@app.route("/api/upload", methods=["POST"])
-def upload_documents():
-    """Handle document upload and ingestion into vectorstore.
-
-    Expects multipart form data with:
-        - files: One or more PDF files
-        - collection: Name of the collection to store documents in
-
-    Response:
-        {
-            "success": true,
-            "message": "Successfully ingested X documents",
-            "details": [
-                {"filename": "doc.pdf", "chunks": 10, "status": "success"},
-                ...
-            ]
-        }
-
-    Returns:
-        JSON response with upload status
-    """
-    logger.info("📤 Received document upload request")
-
-    try:
-        # Check if files were provided
-        if "files" not in request.files:
-            logger.warning("❌ No files in request")
-            return jsonify({"success": False, "error": "No files provided"}), 400
-
-        files = request.files.getlist("files")
-        collection = request.form.get("collection", "default")
-
-        if not files or all(f.filename == "" for f in files):
-            logger.warning("❌ No files selected")
-            return jsonify({"success": False, "error": "No files selected"}), 400
-
-        logger.info(f"📁 Collection: {collection}")
-        logger.info(f"📄 Files received: {len(files)}")
-
-        results = []
-        success_count = 0
-
-        for file in files:
-            if file.filename == "":
-                continue
-
-            if not allowed_file(file.filename):
-                results.append(
-                    {
-                        "filename": file.filename,
-                        "status": "error",
-                        "error": "File type not allowed. Only PDF files are accepted.",
-                    }
-                )
-                continue
-
-            try:
-                # Save file temporarily
-                filename = secure_filename(file.filename)
-                filepath = UPLOAD_FOLDER / filename
-                file.save(filepath)
-                logger.info(f"💾 Saved file: {filepath}")
-
-                # Extract chunks from PDF (without embeddings)
-                chunks = extract_chunks_from_pdf(filepath, collection)
-                logger.info(f"📊 Extracted {len(chunks)} chunks from {filename}")
-
-                # Store chunks via MCP tool (handles embedding generation)
-                store_result = run_async(
-                    call_mcp_tool(
-                        local_mcp_server_url,
-                        "store_document_chunks",
-                        {"chunks": chunks, "collection": collection},
-                    )
-                )
-
-                if store_result.get("success"):
-                    logger.info(
-                        f"✅ Stored {store_result.get('chunks_stored', 0)} chunks "
-                        f"for {filename} in collection '{collection}'"
-                    )
-                    results.append(
-                        {
-                            "filename": filename,
-                            "chunks": store_result.get("chunks_stored", len(chunks)),
-                            "status": "success",
-                        }
-                    )
-                    success_count += 1
-                else:
-                    error_msg = store_result.get("message", "Unknown error")
-                    logger.error(f"❌ Failed to store chunks: {error_msg}")
-                    results.append({"filename": filename, "status": "error", "error": error_msg})
-
-                # Clean up temporary file
-                filepath.unlink()
-
-            except Exception as e:
-                logger.error(f"❌ Error processing {file.filename}: {e}", exc_info=True)
-                results.append({"filename": file.filename, "status": "error", "error": str(e)})
-
-        return jsonify(
-            {
-                "success": success_count > 0,
-                "message": f"Successfully ingested {success_count} of {len(files)} documents",
-                "collection": collection,
-                "details": results,
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"❌ Error in upload handler: {e}", exc_info=True)
-        return jsonify({"success": False, "error": f"Internal server error: {str(e)}"}), 500
-
-
-@app.route("/api/chat", methods=["POST"])
-def chat():
-    """Handle chat requests using RAG pipeline with MCP server.
-
-    Expects JSON body with 'query' field. Returns JSON with 'response' field.
-
-    Request:
-        {
-            "query": "What is quantum entanglement?",
-            "top_k": 5  # Optional, default 5
-        }
-
-    Response:
-        {
-            "response": "Based on the documents, quantum entanglement is...",
-            "sources": [
-                {"source": "paper.pdf", "chunk_index": 0, "content": "..."},
-                ...
-            ]
-        }
-
-    Returns:
-        JSON response with answer and sources
-    """
-    logger.info("📨 Received chat request")
-    try:
-        # Get query from request
-        data = request.get_json()
-        if not data or "query" not in data:
-            logger.warning("❌ Missing 'query' field in request")
-            return jsonify({"error": "Missing 'query' field in request"}), 400
-
-        user_query = data["query"]
-        top_k = data.get("top_k", 5)
-        collection = data.get("collection", None)  # None = search all collections
-        logger.info(f"🔍 Query: '{user_query[:100]}...'")
-        logger.info(f"📁 Collection filter: {collection or 'All collections'}")
-
-        # 1. Call Retrieval Tool via MCP helper
-        logger.info("📡 Calling MCP retrieval tool...")
-        tool_params = {"query": user_query, "top_k": top_k}
-        if collection:
-            tool_params["collection"] = collection
-
-        retrieved_chunks = run_async(
-            call_mcp_tool(local_mcp_server_url, "retrieve_document_chunks", tool_params)
-        )
-        logger.info(f"✅ Retrieved {len(retrieved_chunks)} chunks")
-
-        # 2. Format context from retrieved chunks
-        context = format_context(retrieved_chunks)
-
-        # 3. Construct prompt with context
-        system_prompt = (
-            "You are an expert assistant. Your task is to answer the user's question based "
-            "ONLY on the context provided below. Do not use any outside knowledge. "
-            "If the answer cannot be found in the context, state that clearly. "
-            "Cite the source filename for the information you use."
-        )
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": f"Context:\n---\n{context}\n---\n\nQuestion: {user_query}",
-            },
-        ]
-
-        # 4. Call LLM Service to generate response
-        logger.info("🤖 Generating response from LLM...")
-        llm_response = run_async(
-            llm_service.generate_response(messages, mcp_servers=mcp_tool_servers)
-        )
-        logger.info("✅ Response generated")
-
-        # 5. Return response with sources
-        logger.info("✅ Chat request completed successfully")
-        return jsonify({"response": llm_response, "sources": retrieved_chunks})
-
-    except Exception as e:
-        logger.error(f"❌ Error processing chat request: {e}", exc_info=True)
-        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
-
-
-def format_context(chunks: list[dict]) -> str:
-    """Format retrieved chunks into context string for LLM.
-
-    Args:
-        chunks: List of document chunks with metadata
-
-    Returns:
-        Formatted context string
-    """
-    if not chunks:
-        return "No relevant context found."
-
-    context_str = ""
-    for chunk in chunks:
-        source = chunk.get("source", "Unknown")
-        content = chunk.get("content", "")
-        context_str += f"Source: {source}\nContent: {content}\n\n"
-    return context_str.strip()
-
-
-@app.route("/health", methods=["GET"])
-def health():
-    """Health check endpoint.
-
-    Returns:
-        JSON with service status
-    """
-    return jsonify(
-        {
-            "status": "healthy",
-            "llm_service": "initialized" if llm_service else "not initialized",
-        }
-    )
-
-
-@app.route("/api/mcp-status", methods=["GET"])
-def get_mcp_status():
-    """Get status of all configured MCP servers.
-
-    Returns:
-        JSON response with connected and failed MCP servers
-    """
-    logger.info("🔌 Checking MCP server status...")
-
-    connected_servers = []
-    failed_servers = []
-
-    # Check local MCP server
-    if local_mcp_server_url:
-        result = run_async(check_mcp_server(local_mcp_server_url))
-        # Use server-reported name if available, otherwise fallback
-        result["name"] = result.get("server_name") or "Local Document Server"
-        result["type"] = "local"
-        if result["status"] == "connected":
-            connected_servers.append(result)
-        else:
-            failed_servers.append(result)
-
-    # Check tool MCP servers
-    for url in mcp_tool_servers:
-        result = run_async(check_mcp_server(url))
-        # Use server-reported name if available, otherwise fallback to URL-based name
-        fallback_name = f"Tool Server ({url.split('/')[-2] if '/' in url else url})"
-        result["name"] = result.get("server_name") or fallback_name
-        result["type"] = "tool"
-        if result["status"] == "connected":
-            connected_servers.append(result)
-        else:
-            failed_servers.append(result)
-
-    logger.info(f"✅ Connected: {len(connected_servers)}, Failed: {len(failed_servers)}")
-    return jsonify(
-        {
-            "connected": connected_servers,
-            "failed": failed_servers,
-            "total_configured": len(mcp_tool_servers) + (1 if local_mcp_server_url else 0),
-        }
-    )
+    # Initialize route dependencies
+    init_chat_routes(llm_service, local_mcp_server_url, mcp_tool_servers)
+    init_upload_routes(local_mcp_server_url, UPLOAD_FOLDER)
+    init_health_routes(llm_service, local_mcp_server_url, mcp_tool_servers)
 
 
 def create_app():

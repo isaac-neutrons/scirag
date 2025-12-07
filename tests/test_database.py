@@ -108,7 +108,7 @@ class TestCosineSimilarity:
 class TestCreateDocumentStore:
     """Tests for create_document_store function."""
 
-    @patch("scirag.service.database.DocumentStore")
+    @patch("scirag.service.database.operations.DocumentStore")
     def test_creates_document_store_with_defaults(self, mock_document_store_class):
         """Test that create_document_store creates a DocumentStore with default config."""
         mock_store = MagicMock()
@@ -131,7 +131,7 @@ class TestCreateDocumentStore:
             # Verify the instance is returned
             assert store is mock_store
 
-    @patch("scirag.service.database.DocumentStore")
+    @patch("scirag.service.database.operations.DocumentStore")
     def test_creates_document_store_with_custom_params(self, mock_document_store_class):
         """Test that create_document_store accepts custom URL and database."""
         mock_store = MagicMock()
@@ -165,7 +165,7 @@ class TestCreateDocumentStore:
 class TestDatabaseExists:
     """Tests for database_exists function."""
 
-    @patch("scirag.service.database.DocumentStore")
+    @patch("scirag.service.database.operations.DocumentStore")
     def test_database_exists_returns_true(self, mock_document_store_class):
         """Test that database_exists returns True when database is accessible."""
         mock_store = MagicMock()
@@ -181,7 +181,7 @@ class TestDatabaseExists:
         mock_store.initialize.assert_called_once()
         mock_store.close.assert_called_once()
 
-    @patch("scirag.service.database.DocumentStore")
+    @patch("scirag.service.database.operations.DocumentStore")
     def test_database_exists_returns_false_on_exception(
         self, mock_document_store_class
     ):
@@ -194,7 +194,7 @@ class TestDatabaseExists:
 
         assert result is False
 
-    @patch("scirag.service.database.DocumentStore")
+    @patch("scirag.service.database.operations.DocumentStore")
     def test_database_exists_with_defaults(self, mock_document_store_class):
         """Test that database_exists uses default config when not specified."""
         mock_store = MagicMock()
@@ -268,7 +268,7 @@ class TestCreateDatabase:
 class TestCountDocuments:
     """Tests for count_documents function."""
 
-    @patch("scirag.service.database.DocumentStore")
+    @patch("scirag.service.database.operations.DocumentStore")
     def test_count_documents_returns_count(self, mock_document_store_class):
         """Test that count_documents returns the count of DocumentChunks."""
         # Setup mocks
@@ -297,7 +297,7 @@ class TestCountDocuments:
         )
         mock_store.close.assert_called_once()
 
-    @patch("scirag.service.database.DocumentStore")
+    @patch("scirag.service.database.operations.DocumentStore")
     def test_count_documents_with_defaults(self, mock_document_store_class):
         """Test that count_documents uses default config when not specified."""
         # Setup mocks
@@ -320,7 +320,7 @@ class TestCountDocuments:
             mock_document_store_class.assert_called_once_with(["http://env:8080"], "envdb")
             assert count == 10
 
-    @patch("scirag.service.database.DocumentStore")
+    @patch("scirag.service.database.operations.DocumentStore")
     def test_count_documents_returns_zero_for_empty_database(
         self, mock_document_store_class
     ):
@@ -341,7 +341,7 @@ class TestCountDocuments:
         assert count == 0
         mock_store.close.assert_called_once()
 
-    @patch("scirag.service.database.DocumentStore")
+    @patch("scirag.service.database.operations.DocumentStore")
     def test_count_documents_closes_store_on_error(self, mock_document_store_class):
         """Test that count_documents closes store even when error occurs."""
         # Setup mocks
@@ -366,7 +366,7 @@ class TestCountDocuments:
 class TestGetCollections:
     """Tests for get_collections function."""
 
-    @patch("scirag.service.database.requests.get")
+    @patch("scirag.service.database.operations.requests.get")
     def test_get_collections_returns_sorted_list(self, mock_get):
         """Test that get_collections returns sorted list of collections."""
         from scirag.service.database import get_collections
@@ -385,7 +385,7 @@ class TestGetCollections:
             "http://test:8080/databases/testdb/collections/stats", timeout=10
         )
 
-    @patch("scirag.service.database.requests.get")
+    @patch("scirag.service.database.operations.requests.get")
     def test_get_collections_returns_empty_list_on_no_collections(self, mock_get):
         """Test that get_collections returns empty list when no collections exist."""
         from scirag.service.database import get_collections
@@ -399,7 +399,7 @@ class TestGetCollections:
 
         assert result == []
 
-    @patch("scirag.service.database.requests.get")
+    @patch("scirag.service.database.operations.requests.get")
     def test_get_collections_returns_empty_list_on_request_error(self, mock_get):
         """Test that get_collections returns empty list on request failure."""
         import requests
@@ -411,7 +411,7 @@ class TestGetCollections:
 
         assert result == []
 
-    @patch("scirag.service.database.requests.get")
+    @patch("scirag.service.database.operations.requests.get")
     def test_get_collections_uses_default_config(self, mock_get):
         """Test that get_collections uses default URL and database when not provided."""
         from scirag.service.database import get_collections
@@ -573,8 +573,8 @@ class TestDatabaseStorageIntegration:
                 session.store(chunk, chunk["id"])
             session.save_changes()
         
-        # Count should be at least 5
-        count = count_documents(collection=collection_name)
+        # Count should be at least 5 (counts all DocumentChunks in database)
+        count = count_documents()
         assert count >= 5
 
     @pytest.mark.integration

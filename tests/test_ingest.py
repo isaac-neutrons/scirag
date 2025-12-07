@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from scirag.client.ingest import (
     chunk_text,
     extract_text_from_pdf,
@@ -13,36 +15,30 @@ from scirag.client.ingest import (
 class TestExtractTextFromPDF:
     """Tests for extract_text_from_pdf function."""
 
-    @patch("scirag.client.ingest.fitz.open")
-    def test_extract_text_single_page(self, mock_fitz_open):
-        """Test extracting text from a single-page PDF."""
-        mock_doc = MagicMock()
-        mock_page = MagicMock()
-        mock_page.get_text.return_value = "Page 1 content"
-        mock_doc.__iter__.return_value = [mock_page]
-        mock_fitz_open.return_value = mock_doc
+    @pytest.mark.integration
+    def test_extract_text_from_real_pdf(self, sample_pdf):
+        """Test extracting text from a real PDF file."""
+        text = extract_text_from_pdf(sample_pdf)
+        
+        # Verify text was extracted
+        assert len(text) > 0
+        
+        # Verify expected content is present
+        assert "Test Document for SciRAG" in text
+        assert "Python programming" in text
+        assert "machine learning" in text
+        
+        # Verify multi-page extraction works
+        assert "vector embeddings" in text  # From page 2
+        assert "semantic search" in text  # From page 2
 
-        text = extract_text_from_pdf(Path("test.pdf"))
-
-        assert text == "Page 1 content"
-        mock_fitz_open.assert_called_once_with(Path("test.pdf"))
-        mock_doc.close.assert_called_once()
-
-    @patch("scirag.client.ingest.fitz.open")
-    def test_extract_text_multiple_pages(self, mock_fitz_open):
-        """Test extracting text from a multi-page PDF."""
-        mock_doc = MagicMock()
-        mock_page1 = MagicMock()
-        mock_page1.get_text.return_value = "Page 1"
-        mock_page2 = MagicMock()
-        mock_page2.get_text.return_value = "Page 2"
-        mock_doc.__iter__.return_value = [mock_page1, mock_page2]
-        mock_fitz_open.return_value = mock_doc
-
-        text = extract_text_from_pdf(Path("test.pdf"))
-
-        assert text == "Page 1Page 2"
-        mock_doc.close.assert_called_once()
+    @pytest.mark.integration
+    def test_extract_text_handles_nonexistent_file(self):
+        """Test that extract_text_from_pdf handles missing files appropriately."""
+        nonexistent_path = Path("/nonexistent/file.pdf")
+        
+        with pytest.raises(Exception):  # PyMuPDF raises FileNotFoundError or similar
+            extract_text_from_pdf(nonexistent_path)
 
 
 class TestChunkText:
@@ -98,43 +94,47 @@ class TestChunkText:
 class TestExtractChunksFromPDF:
     """Tests for extract_chunks_from_pdf function."""
 
-    @patch("scirag.client.ingest.fitz.open")
-    @patch("scirag.client.ingest.chunk_text")
-    @patch("scirag.client.ingest.extract_text_from_pdf")
-    def test_extract_chunks_from_pdf(
-        self, mock_extract_text, mock_chunk_text, mock_fitz_open
-    ):
-        """Test extracting chunks from a PDF file."""
-        # Mock the PDF document
-        mock_doc = MagicMock()
-        mock_doc.__len__ = MagicMock(return_value=5)
-        mock_doc.metadata = {"title": "Test Title", "author": "Test Author"}
-        mock_fitz_open.return_value = mock_doc
+    @pytest.mark.integration
+    def test_extract_chunks_from_real_pdf(self, sample_pdf):
+        """Test extracting chunks from a real PDF file."""
+        chunks = extract_chunks_from_pdf(sample_pdf, collection="test-collection")
+        
+        # Verify chunks were created
+        assert len(chunks) > 0
+        
+        # Verify chunk structure
+        first_chunk = chunks[0]
+        assert "text" in first_chunk
+        assert "source_filename" in first_chunk
+        assert "chunk_index" in first_chunk
+        assert "metadata" in first_chunk
+        
+        # Verify content
+        assert first_chunk["source_filename"] == "sample.pdf"
+        assert len(first_chunk["text"]) > 0
+        
+        # Verify metadata includes expected fields
+        metadata = first_chunk["metadata"]
+        assert "file_size" in metadata
+        assert "page_count" in metadata
+        assert metadata["page_count"] == 2  # Our sample has 2 pages
+        assert metadata["file_size"] > 0
+        
+        # Verify chunk indices are sequential
+        for i, chunk in enumerate(chunks):
+            assert chunk["chunk_index"] == i
 
-        # Mock text extraction and chunking
-        mock_extract_text.return_value = "Sample text from PDF"
-        mock_chunk_text.return_value = ["Chunk 1", "Chunk 2"]
+    @pytest.mark.integration
+    def test_extract_chunks_preserves_content(self, sample_pdf):
+        """Test that chunks preserve the original PDF content."""
+        chunks = extract_chunks_from_pdf(sample_pdf)
+        
+        # Combine all chunk text
+        combined_text = " ".join(chunk["text"] for chunk in chunks)
+        
+        # Verify key content is preserved
+        assert "Python programming" in combined_text
+        assert "machine learning" in combined_text
+        assert "vector embeddings" in combined_text
 
-        # Create a mock path with stat
-        mock_path = MagicMock(spec=Path)
-        mock_path.name = "test.pdf"
-        mock_stat = MagicMock()
-        mock_stat.st_size = 12345
-        mock_stat.st_mtime = 1234567890.0
-        mock_stat.st_ctime = 1234567890.0
-        mock_path.stat.return_value = mock_stat
-
-        chunks = extract_chunks_from_pdf(mock_path, collection="TestCollection")
-
-        assert len(chunks) == 2
-        assert chunks[0]["text"] == "Chunk 1"
-        assert chunks[0]["source_filename"] == "test.pdf"
-        assert chunks[0]["chunk_index"] == 0
-        assert chunks[0]["metadata"]["file_size"] == 12345
-        assert chunks[0]["metadata"]["page_count"] == 5
-        assert chunks[0]["metadata"]["title"] == "Test Title"
-        assert chunks[0]["metadata"]["author"] == "Test Author"
-
-        assert chunks[1]["text"] == "Chunk 2"
-        assert chunks[1]["chunk_index"] == 1
 

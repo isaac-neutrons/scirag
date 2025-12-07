@@ -1,0 +1,47 @@
+{
+  "description": "Sample document chunks for testing RavenDB storage and retrieval",
+  "chunks": [
+    {
+      "id": "sample.pdf_chunk_0",
+      "text": "This is a sample scientific document used for testing. It contains information about Python programming and machine learning applications in scientific research.",
+      "source_filename": "sample.pdf",
+      "chunk_index": 0,
+      "collection": "test-collection",
+      "metadata": {
+        "file_size": 1024,
+        "page_count": 2,
+        "title": "Test Document for SciRAG",
+        "created_date": "2025-12-02",
+        "modified_date": "2025-12-02"
+      }
+    },
+    {
+      "id": "sample.pdf_chunk_1",
+      "text": "Key findings: Python is widely used in data analysis. Machine learning improves research efficiency. Document retrieval systems help scientists find information.",
+      "source_filename": "sample.pdf",
+      "chunk_index": 1,
+      "collection": "test-collection",
+      "metadata": {
+        "file_size": 1024,
+        "page_count": 2,
+        "title": "Test Document for SciRAG",
+        "created_date": "2025-12-02",
+        "modified_date": "2025-12-02"
+      }
+    },
+    {
+      "id": "sample.pdf_chunk_2",
+      "text": "This page contains supplementary information about vector embeddings and semantic search capabilities. Vector databases enable efficient similarity search.",
+      "source_filename": "sample.pdf",
+      "chunk_index": 2,
+      "collection": "test-collection",
+      "metadata": {
+        "file_size": 1024,
+        "page_count": 2,
+        "title": "Test Document for SciRAG",
+        "created_date": "2025-12-02",
+        "modified_date": "2025-12-02"
+      }
+    }
+  ]
+}

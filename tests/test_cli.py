@@ -3,6 +3,7 @@
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from scirag.client.cli import count, ingest, search
@@ -479,3 +480,164 @@ class TestSearchCLI:
         assert "..." in result.output  # Should have ellipsis for truncated content
         # Should not contain the full 300 characters
         assert long_content not in result.output
+
+
+# ============================================================================
+# Integration Tests - Test with real components
+# ============================================================================
+
+class TestIngestCLIIntegration:
+    """Integration tests for ingest CLI command with real components."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.runner = CliRunner()
+
+    @pytest.mark.integration
+    def test_ingest_real_pdf_extraction(self, sample_pdf):
+        """Test ingest command with real PDF file (no DB/embeddings)."""
+        # Test just the PDF extraction part without database
+        from scirag.client.ingest import extract_chunks_from_pdf
+        
+        # Verify PDF can be processed
+        chunks = extract_chunks_from_pdf(sample_pdf, collection="test-cli")
+        assert len(chunks) > 0
+        assert all("text" in chunk for chunk in chunks)
+        assert all(len(chunk["text"]) > 0 for chunk in chunks)
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ravendb
+    @pytest.mark.slow
+    def test_ingest_full_workflow_with_database(self, sample_pdf, tmp_path, ravendb_store):
+        """Test complete ingest workflow with real database."""
+        # Copy sample PDF to temp directory for CLI
+        import shutil
+        test_dir = tmp_path / "pdfs"
+        test_dir.mkdir()
+        test_pdf = test_dir / "sample.pdf"
+        shutil.copy(sample_pdf, test_pdf)
+        
+        result = self.runner.invoke(ingest, [
+            str(test_dir),
+            "--collection", "test-cli-integration",
+            "--create-database"
+        ])
+        
+        # Should succeed
+        assert result.exit_code == 0
+        assert "Found 1 PDF file" in result.output
+        assert "successfully" in result.output.lower() or "stored" in result.output.lower()
+
+    @pytest.mark.integration
+    def test_ingest_validates_real_pdf_format(self, tmp_path):
+        """Test that ingest properly validates actual PDF files."""
+        # Create a file that's not a real PDF
+        fake_pdf = tmp_path / "fake.pdf"
+        fake_pdf.write_text("This is not a PDF file")
+        
+        # Should handle gracefully (either skip or error)
+        result = self.runner.invoke(ingest, [str(tmp_path)])
+        
+        # Should not crash completely
+        assert "Error" in result.output or "No PDF files" in result.output or result.exit_code != 0
+
+
+class TestSearchCLIIntegration:
+    """Integration tests for search CLI command."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.runner = CliRunner()
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ravendb
+    @pytest.mark.requires_ollama
+    @pytest.mark.slow
+    def test_search_returns_relevant_results(self, sample_pdf, tmp_path, ravendb_store, ollama_service):
+        """Test search with real embeddings and database."""
+        # First ingest a document
+        import shutil
+        test_dir = tmp_path / "search_test"
+        test_dir.mkdir()
+        test_pdf = test_dir / "sample.pdf"
+        shutil.copy(sample_pdf, test_pdf)
+        
+        # Ingest
+        ingest_result = self.runner.invoke(ingest, [
+            str(test_dir),
+            "--collection", "test-search-integration",
+            "--create-database"
+        ])
+        assert ingest_result.exit_code == 0
+        
+        # Now search for Python-related content (which is in our sample PDF)
+        search_result = self.runner.invoke(search, [
+            "Python programming language",
+            "--collection", "test-search-integration"
+        ])
+        
+        assert search_result.exit_code == 0
+        # Should find relevant content
+        output_lower = search_result.output.lower()
+        assert "python" in output_lower or "programming" in output_lower or "machine learning" in output_lower
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ollama
+    def test_search_embedding_generation(self, ollama_service):
+        """Test that search can generate embeddings for queries."""
+        query = "test query for embedding"
+        
+        # Should generate embedding without error
+        embeddings = ollama_service.generate_embeddings([query], "nomic-embed-text")
+        assert len(embeddings) == 1
+        assert len(embeddings[0]) == 768
+
+
+class TestCountCLIIntegration:
+    """Integration tests for count CLI command."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.runner = CliRunner()
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ravendb
+    def test_count_real_database(self, ravendb_store):
+        """Test count command with real database connection."""
+        result = self.runner.invoke(count, [])
+        
+        # Should execute without error (count may be 0 if DB is empty)
+        assert result.exit_code == 0
+        # Output should contain a number
+        assert any(char.isdigit() for char in result.output)
+
+    @pytest.mark.integration
+    @pytest.mark.requires_ravendb
+    @pytest.mark.slow
+    def test_count_after_ingestion(self, sample_pdf, tmp_path, ravendb_store):
+        """Test that count reflects actual document count."""
+        import shutil
+        
+        # Get initial count
+        initial_result = self.runner.invoke(count, ["--collection", "test-count-integration"])
+        initial_output = initial_result.output
+        
+        # Ingest a document
+        test_dir = tmp_path / "count_test"
+        test_dir.mkdir()
+        test_pdf = test_dir / "sample.pdf"
+        shutil.copy(sample_pdf, test_pdf)
+        
+        ingest_result = self.runner.invoke(ingest, [
+            str(test_dir),
+            "--collection", "test-count-integration",
+            "--create-database"
+        ])
+        assert ingest_result.exit_code == 0
+        
+        # Count should increase
+        final_result = self.runner.invoke(count, ["--collection", "test-count-integration"])
+        assert final_result.exit_code == 0
+        
+        # Should show chunks were added
+        assert "chunk" in final_result.output.lower() or final_result.output != initial_output

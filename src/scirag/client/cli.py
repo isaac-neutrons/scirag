@@ -1,13 +1,11 @@
 """Command-line interface for SciRAG using Click."""
 
 import asyncio
-import json
 import os
 from pathlib import Path
 
 import click
 from dotenv import load_dotenv
-from fastmcp import Client
 
 from scirag.client.ingest import extract_chunks_from_pdf
 from scirag.constants import DEFAULT_LOCAL_MCP_URL, get_embedding_model
@@ -18,6 +16,7 @@ from scirag.service.database import (
     delete_database,
     search_documents,
 )
+from scirag.service.mcp_helpers import call_mcp_tool
 
 # Load environment variables
 load_dotenv()
@@ -122,20 +121,13 @@ def ingest(
             f"Storing {len(all_chunks)} chunks via MCP server (collection: '{collection}')..."
         )
         try:
-            # Use async to call MCP tool
-            async def store_via_mcp():
-                mcp_client = Client(local_mcp_server_url)
-                async with mcp_client:
-                    result = await mcp_client.call_tool(
-                        "store_document_chunks", {"chunks": all_chunks, "collection": collection}
-                    )
-                    if hasattr(result, "content") and result.content:
-                        if isinstance(result.content, list):
-                            return json.loads(result.content[0].text)
-                        return result.content
-                    return result
-
-            store_result = asyncio.run(store_via_mcp())
+            store_result = asyncio.run(
+                call_mcp_tool(
+                    local_mcp_server_url,
+                    "store_document_chunks",
+                    {"chunks": all_chunks, "collection": collection},
+                )
+            )
 
             if store_result.get("success"):
                 click.echo(

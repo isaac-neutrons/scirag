@@ -5,14 +5,11 @@ Retrieval-Augmented Generation (RAG). It orchestrates document retrieval
 via an MCP server and response generation via an LLM service.
 """
 
-import asyncio
-import json
 import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastmcp import Client
 from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
@@ -23,6 +20,7 @@ from scirag.constants import (
     MAX_UPLOAD_SIZE_BYTES,
 )
 from scirag.llm.providers import get_llm_service
+from scirag.service.mcp_helpers import call_mcp_tool, check_mcp_server, run_async
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "DEBUG")
@@ -124,23 +122,7 @@ def list_collections_endpoint():
     """
     logger.info("📂 Fetching collection names")
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-
-            async def get_collections_via_mcp():
-                client = Client(local_mcp_server_url)
-                async with client:
-                    result = await client.call_tool("list_collections", {})
-                    if hasattr(result, "content") and result.content:
-                        if isinstance(result.content, list):
-                            return json.loads(result.content[0].text)
-                        return result.content
-                    return result
-
-            collections = loop.run_until_complete(get_collections_via_mcp())
-        finally:
-            loop.close()
+        collections = run_async(call_mcp_tool(local_mcp_server_url, "list_collections"))
 
         logger.info(f"✅ Found {len(collections)} collections")
         return jsonify({"success": True, "collections": collections})
@@ -218,26 +200,13 @@ def upload_documents():
                 logger.info(f"📊 Extracted {len(chunks)} chunks from {filename}")
 
                 # Store chunks via MCP tool (handles embedding generation)
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-
-                    async def store_via_mcp():
-                        client = Client(local_mcp_server_url)
-                        async with client:
-                            result = await client.call_tool(
-                                "store_document_chunks",
-                                {"chunks": chunks, "collection": collection},
-                            )
-                            if hasattr(result, "content") and result.content:
-                                if isinstance(result.content, list):
-                                    return json.loads(result.content[0].text)
-                                return result.content
-                            return result
-
-                    store_result = loop.run_until_complete(store_via_mcp())
-                finally:
-                    loop.close()
+                store_result = run_async(
+                    call_mcp_tool(
+                        local_mcp_server_url,
+                        "store_document_chunks",
+                        {"chunks": chunks, "collection": collection},
+                    )
+                )
 
                 if store_result.get("success"):
                     logger.info(
@@ -316,65 +285,46 @@ def chat():
         logger.info(f"🔍 Query: '{user_query[:100]}...'")
         logger.info(f"📁 Collection filter: {collection or 'All collections'}")
 
-        # Run async operations in event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            # 1. Call Retrieval Tool via FastMCP client
-            logger.info("📡 Calling MCP retrieval tool...")
+        # 1. Call Retrieval Tool via MCP helper
+        logger.info("📡 Calling MCP retrieval tool...")
+        tool_params = {"query": user_query, "top_k": top_k}
+        if collection:
+            tool_params["collection"] = collection
 
-            async def get_chunks():
-                client = Client(local_mcp_server_url)
-                async with client:
-                    tool_params = {"query": user_query, "top_k": top_k}
-                    if collection:
-                        tool_params["collection"] = collection
-                    result = await client.call_tool("retrieve_document_chunks", tool_params)
-                    # Extract content from CallToolResult
-                    # result.content is a list of TextContent objects
-                    if hasattr(result, "content") and result.content:
-                        # If content is a list of TextContent, get the first one's text
-                        if isinstance(result.content, list):
-                            # The text field contains the JSON data
-                            return json.loads(result.content[0].text)
-                        return result.content
-                    return result
+        retrieved_chunks = run_async(
+            call_mcp_tool(local_mcp_server_url, "retrieve_document_chunks", tool_params)
+        )
+        logger.info(f"✅ Retrieved {len(retrieved_chunks)} chunks")
 
-            retrieved_chunks = loop.run_until_complete(get_chunks())
-            logger.info(f"✅ Retrieved {len(retrieved_chunks)} chunks")
+        # 2. Format context from retrieved chunks
+        context = format_context(retrieved_chunks)
 
-            # 2. Format context from retrieved chunks
-            context = format_context(retrieved_chunks)
+        # 3. Construct prompt with context
+        system_prompt = (
+            "You are an expert assistant. Your task is to answer the user's question based "
+            "ONLY on the context provided below. Do not use any outside knowledge. "
+            "If the answer cannot be found in the context, state that clearly. "
+            "Cite the source filename for the information you use."
+        )
 
-            # 3. Construct prompt with context
-            system_prompt = (
-                "You are an expert assistant. Your task is to answer the user's question based "
-                "ONLY on the context provided below. Do not use any outside knowledge. "
-                "If the answer cannot be found in the context, state that clearly. "
-                "Cite the source filename for the information you use."
-            )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": f"Context:\n---\n{context}\n---\n\nQuestion: {user_query}",
+            },
+        ]
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": f"Context:\n---\n{context}\n---\n\nQuestion: {user_query}",
-                },
-            ]
+        # 4. Call LLM Service to generate response
+        logger.info("🤖 Generating response from LLM...")
+        llm_response = run_async(
+            llm_service.generate_response(messages, mcp_servers=mcp_tool_servers)
+        )
+        logger.info("✅ Response generated")
 
-            # 4. Call LLM Service to generate response
-            logger.info("🤖 Generating response from LLM...")
-            llm_response = loop.run_until_complete(
-                llm_service.generate_response(messages, mcp_servers=mcp_tool_servers)
-            )
-            logger.info("✅ Response generated")
-
-            # 5. Return response with sources
-            logger.info("✅ Chat request completed successfully")
-            return jsonify({"response": llm_response, "sources": retrieved_chunks})
-
-        finally:
-            loop.close()
+        # 5. Return response with sources
+        logger.info("✅ Chat request completed successfully")
+        return jsonify({"response": llm_response, "sources": retrieved_chunks})
 
     except Exception as e:
         logger.error(f"❌ Error processing chat request: {e}", exc_info=True)
@@ -428,65 +378,28 @@ def get_mcp_status():
     connected_servers = []
     failed_servers = []
 
-    # Check local MCP server (for document retrieval)
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
+    # Check local MCP server
+    if local_mcp_server_url:
+        result = run_async(check_mcp_server(local_mcp_server_url))
+        # Use server-reported name if available, otherwise fallback
+        result["name"] = result.get("server_name") or "Local Document Server"
+        result["type"] = "local"
+        if result["status"] == "connected":
+            connected_servers.append(result)
+        else:
+            failed_servers.append(result)
 
-        async def check_mcp_server(url: str) -> dict:
-            """Check if an MCP server is reachable."""
-            try:
-                client = Client(url)
-                async with client:
-                    # Try to list tools to verify connection
-                    tools = await client.list_tools()
-                    tool_names = [tool.name for tool in tools] if tools else []
-                    # Get server name from initialize_result if available
-                    server_name = None
-                    if (
-                        client.initialize_result
-                        and client.initialize_result.serverInfo
-                    ):
-                        server_name = client.initialize_result.serverInfo.name
-                    return {
-                        "url": url,
-                        "status": "connected",
-                        "tools": tool_names,
-                        "server_name": server_name,
-                    }
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to connect to MCP server {url}: {e}")
-                return {
-                    "url": url,
-                    "status": "failed",
-                    "error": str(e),
-                }
-
-        # Check local MCP server
-        if local_mcp_server_url:
-            result = loop.run_until_complete(check_mcp_server(local_mcp_server_url))
-            # Use server-reported name if available, otherwise fallback
-            result["name"] = result.get("server_name") or "Local Document Server"
-            result["type"] = "local"
-            if result["status"] == "connected":
-                connected_servers.append(result)
-            else:
-                failed_servers.append(result)
-
-        # Check tool MCP servers
-        for url in mcp_tool_servers:
-            result = loop.run_until_complete(check_mcp_server(url))
-            # Use server-reported name if available, otherwise fallback to URL-based name
-            fallback_name = f"Tool Server ({url.split('/')[-2] if '/' in url else url})"
-            result["name"] = result.get("server_name") or fallback_name
-            result["type"] = "tool"
-            if result["status"] == "connected":
-                connected_servers.append(result)
-            else:
-                failed_servers.append(result)
-
-    finally:
-        loop.close()
+    # Check tool MCP servers
+    for url in mcp_tool_servers:
+        result = run_async(check_mcp_server(url))
+        # Use server-reported name if available, otherwise fallback to URL-based name
+        fallback_name = f"Tool Server ({url.split('/')[-2] if '/' in url else url})"
+        result["name"] = result.get("server_name") or fallback_name
+        result["type"] = "tool"
+        if result["status"] == "connected":
+            connected_servers.append(result)
+        else:
+            failed_servers.append(result)
 
     logger.info(f"✅ Connected: {len(connected_servers)}, Failed: {len(failed_servers)}")
     return jsonify(

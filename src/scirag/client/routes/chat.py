@@ -36,12 +36,19 @@ def format_context(chunks: list[dict]) -> str:
 def chat():
     """Handle chat requests using RAG pipeline with MCP server.
 
-    Expects JSON body with 'query' field. Returns JSON with 'response' field.
+    Expects JSON body with 'query' field and optional 'messages' for conversation history.
+    Returns JSON with 'response' field.
 
     Request:
         {
             "query": "What is quantum entanglement?",
-            "top_k": 5  # Optional, default 5
+            "messages": [  # Optional conversation history
+                {"role": "user", "content": "Previous question"},
+                {"role": "assistant", "content": "Previous answer"}
+            ],
+            "session_id": "uuid",  # Optional session identifier
+            "top_k": 5,  # Optional, default 5
+            "collection": "papers"  # Optional collection filter
         }
 
     Response:
@@ -50,11 +57,12 @@ def chat():
             "sources": [
                 {"source": "paper.pdf", "chunk_index": 0, "content": "..."},
                 ...
-            ]
+            ],
+            "session_id": "uuid"
         }
 
     Returns:
-        JSON response with answer and sources
+        JSON response with answer, sources, and session ID
     """
     config = get_config()
     logger.info("📨 Received chat request")
@@ -68,8 +76,12 @@ def chat():
         user_query = data["query"]
         top_k = data.get("top_k", 5)
         collection = data.get("collection", None)  # None = search all collections
+        session_id = data.get("session_id", None)
+        conversation_history = data.get("messages", [])
+
         logger.info(f"🔍 Query: '{user_query[:100]}...'")
         logger.info(f"📁 Collection filter: {collection or 'All collections'}")
+        logger.info(f"💬 Conversation history: {len(conversation_history)} messages")
 
         # 1. Call Retrieval Tool via MCP helper
         logger.info("📡 Calling MCP retrieval tool...")
@@ -85,7 +97,7 @@ def chat():
         # 2. Format context from retrieved chunks
         context = format_context(retrieved_chunks)
 
-        # 3. Construct prompt with context
+        # 3. Construct prompt with context and conversation history
         system_prompt = (
             "You are an expert assistant. Your task is to answer the user's question based "
             "ONLY on the context provided below. Do not use any outside knowledge. "
@@ -93,24 +105,42 @@ def chat():
             "Cite the source filename for the information you use."
         )
 
-        messages = [
-            {"role": "system", "content": system_prompt},
+        # Build messages: system prompt + context + conversation history
+        messages = [{"role": "system", "content": system_prompt}]
+
+        # Add context as the first user message
+        messages.append(
             {
                 "role": "user",
-                "content": f"Context:\n---\n{context}\n---\n\nQuestion: {user_query}",
-            },
-        ]
+                "content": f"Here is the context from the document database:\n---\n{context}\n---",
+            }
+        )
+        messages.append(
+            {
+                "role": "assistant",
+                "content": "I understand. I'll answer your questions based only on this context.",
+            }
+        )
+
+        # Add conversation history (excluding the current query which is already in history)
+        # The history includes the current message, so we use all of it
+        for msg in conversation_history:
+            if msg.get("role") in ("user", "assistant") and msg.get("content"):
+                messages.append({"role": msg["role"], "content": msg["content"]})
 
         # 4. Call LLM Service to generate response
-        logger.info("🤖 Generating response from LLM...")
+        logger.info(f"🤖 Generating response from LLM with {len(messages)} messages...")
         llm_response = run_async(
             config.llm_service.generate_response(messages, mcp_servers=config.mcp_tool_servers)
         )
         logger.info("✅ Response generated")
 
-        # 5. Return response with sources
+        # 5. Return response with sources and session ID
         logger.info("✅ Chat request completed successfully")
-        return jsonify({"response": llm_response, "sources": retrieved_chunks})
+        response_data = {"response": llm_response, "sources": retrieved_chunks}
+        if session_id:
+            response_data["session_id"] = session_id
+        return jsonify(response_data)
 
     except Exception as e:
         logger.error(f"❌ Error processing chat request: {e}", exc_info=True)

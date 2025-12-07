@@ -108,6 +108,36 @@ class TestChatEndpoint:
 
     @patch("scirag.client.routes.chat.run_async")
     @patch("scirag.client.routes.chat.get_config")
+    def test_chat_with_conversation_history(self, mock_get_config, mock_run_async, mock_config):
+        """Test chat endpoint accepts and uses conversation history."""
+        mock_get_config.return_value = mock_config
+        mock_run_async.side_effect = [
+            [{"source": "test.pdf", "content": "Test content"}],  # Retrieval
+            "Follow-up answer based on context",  # LLM response
+        ]
+
+        with app.test_client() as client:
+            response = client.post(
+                "/api/chat",
+                data=json.dumps({
+                    "query": "Follow-up question",
+                    "messages": [
+                        {"role": "user", "content": "First question"},
+                        {"role": "assistant", "content": "First answer"},
+                        {"role": "user", "content": "Follow-up question"},
+                    ],
+                    "session_id": "test-session-123",
+                }),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert "response" in data
+            assert data["session_id"] == "test-session-123"
+
+    @patch("scirag.client.routes.chat.run_async")
+    @patch("scirag.client.routes.chat.get_config")
     def test_chat_retrieval_error_handling(self, mock_get_config, mock_run_async, mock_config):
         """Test error handling when document retrieval fails."""
         mock_get_config.return_value = mock_config

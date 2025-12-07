@@ -5,6 +5,21 @@ const messageInput = document.getElementById('messageInput');
 const sendButton = document.getElementById('sendButton');
 let isWaitingForResponse = false;
 let retrievedSources = []; // Store sources from latest query
+let conversationHistory = []; // Store conversation history for multi-turn
+
+// Generate a unique session ID (fallback for browsers without crypto.randomUUID)
+function generateSessionId() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    // Fallback: generate a random ID
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+let sessionId = generateSessionId();
 
 // Configure marked.js for markdown rendering
 if (typeof marked !== 'undefined') {
@@ -25,10 +40,28 @@ if (typeof marked !== 'undefined') {
 }
 
 // Load collections and MCP status on page load
-document.addEventListener('DOMContentLoaded', function() {
+function initializePage() {
+    console.log('initializePage called');
     loadCollections();
-    loadMcpStatus();
-});
+    loadMcpStatus().then(() => {
+        console.log('loadMcpStatus completed successfully');
+    }).catch(err => {
+        console.error('Failed to load MCP status on page load:', err);
+        const statusDiv = document.getElementById('mcpServerStatus');
+        if (statusDiv) {
+            statusDiv.innerHTML = '<span class="text-warning small"><i class="bi bi-exclamation-triangle"></i> Failed to load status</span>';
+        }
+    });
+}
+
+// Run initialization - handle case where DOMContentLoaded already fired
+console.log('Script loaded, readyState:', document.readyState);
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializePage);
+} else {
+    // DOM already loaded, run immediately
+    initializePage();
+}
 
 // Load available collections into the dropdown
 async function loadCollections() {
@@ -115,9 +148,14 @@ async function sendMessage() {
     // Get selected collection
     const collection = getSelectedCollection();
     
+    // Add user message to conversation history
+    conversationHistory.push({ role: 'user', content: message });
+    
     try {
         const requestBody = {
             query: message,
+            messages: conversationHistory,  // Send full conversation history
+            session_id: sessionId,
             top_k: 5
         };
         
@@ -145,6 +183,9 @@ async function sendMessage() {
         const data = await response.json();
         addMessage(data.response, 'assistant', data.sources);
         
+        // Add assistant response to conversation history
+        conversationHistory.push({ role: 'assistant', content: data.response });
+        
         // Store sources for the Sources tab
         if (data.sources && data.sources.length > 0) {
             retrievedSources = data.sources;
@@ -157,6 +198,8 @@ async function sendMessage() {
     } catch (error) {
         removeLoading(loadingId);
         showError('Error: ' + error.message);
+        // Remove the failed user message from history
+        conversationHistory.pop();
     } finally {
         // Re-enable input
         isWaitingForResponse = false;
@@ -241,6 +284,47 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Clear chat history and reset conversation
+function clearChat() {
+    // Reset conversation history
+    conversationHistory = [];
+    sessionId = generateSessionId();
+    retrievedSources = [];
+    
+    // Clear chat messages display
+    chatMessages.innerHTML = `
+        <div class="text-center py-5 welcome-message">
+            <h3 class="text-primary mb-3"><i class="bi bi-robot"></i> Welcome to SciRAG!</h3>
+            <p class="text-muted mb-4">
+                Ask me anything about your ingested documents.<br>
+                I'll search through the knowledge base and provide answers with sources.
+            </p>
+            <div class="d-grid gap-2 col-md-8 mx-auto">
+                <button class="btn btn-outline-primary text-start" onclick="sendExampleQuestion(this)">
+                    What are the main findings?
+                </button>
+                <button class="btn btn-outline-primary text-start" onclick="sendExampleQuestion(this)">
+                    Explain the methodology used
+                </button>
+                <button class="btn btn-outline-primary text-start" onclick="sendExampleQuestion(this)">
+                    What are the key conclusions?
+                </button>
+            </div>
+        </div>
+    `;
+    
+    // Clear sources tab
+    const sourcesContent = document.getElementById('sourcesContent');
+    if (sourcesContent) {
+        sourcesContent.innerHTML = `
+            <div class="text-center py-5 text-muted">
+                <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
+                <p class="mt-3">No sources yet. Ask a question to see retrieved documents.</p>
+            </div>
+        `;
+    }
 }
 
 // Tab switching functionality
@@ -344,10 +428,16 @@ function formatDate(timestamp) {
 // Load MCP server status
 async function loadMcpStatus() {
     const statusDiv = document.getElementById('mcpServerStatus');
-    if (!statusDiv) return;
+    if (!statusDiv) {
+        console.warn('mcpServerStatus element not found');
+        return;
+    }
 
     try {
         const response = await fetch('/api/mcp-status');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
         const data = await response.json();
 
         let html = '<div class="d-flex flex-wrap align-items-center gap-1">';

@@ -67,11 +67,12 @@ def extract_mcp_result(result: Any) -> Any:
     return result
 
 
-async def check_mcp_server(url: str) -> dict[str, Any]:
+async def check_mcp_server(url: str, timeout: float = 5.0) -> dict[str, Any]:
     """Check if an MCP server is reachable and get its info.
 
     Args:
         url: The MCP server URL to check
+        timeout: Connection timeout in seconds (default 5.0)
 
     Returns:
         Dict containing:
@@ -83,22 +84,30 @@ async def check_mcp_server(url: str) -> dict[str, Any]:
     """
     try:
         client = MCPClient(url)
-        async with client:
-            # Try to list tools to verify connection
-            tools = await client.list_tools()
-            tool_names = [tool.name for tool in tools] if tools else []
+        async with asyncio.timeout(timeout):
+            async with client:
+                # Try to list tools to verify connection
+                tools = await client.list_tools()
+                tool_names = [tool.name for tool in tools] if tools else []
 
-            # Get server name from initialize_result if available
-            server_name = None
-            if client.initialize_result and client.initialize_result.serverInfo:
-                server_name = client.initialize_result.serverInfo.name
+                # Get server name from initialize_result if available
+                server_name = None
+                if client.initialize_result and client.initialize_result.serverInfo:
+                    server_name = client.initialize_result.serverInfo.name
 
-            return {
-                "url": url,
-                "status": "connected",
-                "tools": tool_names,
-                "server_name": server_name,
-            }
+                return {
+                    "url": url,
+                    "status": "connected",
+                    "tools": tool_names,
+                    "server_name": server_name,
+                }
+    except asyncio.TimeoutError:
+        logger.warning(f"⚠️ Timeout connecting to MCP server {url}")
+        return {
+            "url": url,
+            "status": "failed",
+            "error": f"Connection timeout ({timeout}s)",
+        }
     except Exception as e:
         logger.warning(f"⚠️ Failed to connect to MCP server {url}: {e}")
         return {

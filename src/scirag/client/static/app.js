@@ -6,6 +6,24 @@ const sendButton = document.getElementById('sendButton');
 let isWaitingForResponse = false;
 let retrievedSources = []; // Store sources from latest query
 
+// Configure marked.js for markdown rendering
+if (typeof marked !== 'undefined') {
+    marked.setOptions({
+        breaks: true,  // Convert \n to <br>
+        gfm: true,     // GitHub Flavored Markdown
+        highlight: function(code, lang) {
+            if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+                try {
+                    return hljs.highlight(code, { language: lang }).value;
+                } catch (e) {
+                    console.error('Highlight error:', e);
+                }
+            }
+            return code;
+        }
+    });
+}
+
 // Load collections and MCP status on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadCollections();
@@ -152,9 +170,17 @@ function addMessage(content, role, sources = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
     
+    // Render markdown for assistant messages, escape HTML for user messages
+    let renderedContent;
+    if (role === 'assistant' && typeof marked !== 'undefined') {
+        renderedContent = marked.parse(content);
+    } else {
+        renderedContent = escapeHtml(content);
+    }
+    
     let messageHTML = `
-        <div class="message-content">
-            ${escapeHtml(content)}
+        <div class="message-content${role === 'assistant' ? ' markdown-body' : ''}">
+            ${renderedContent}
     `;
     
     if (sources && sources.length > 0) {

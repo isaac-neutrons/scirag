@@ -4,30 +4,12 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
+from scirag.client.routes.config import get_config
 from scirag.service.mcp_helpers import call_mcp_tool, run_async
 
 logger = logging.getLogger(__name__)
 
 chat_bp = Blueprint("chat", __name__)
-
-# These will be set by app.py during initialization
-llm_service = None
-local_mcp_server_url = None
-mcp_tool_servers = []
-
-
-def init_chat_routes(llm, mcp_url, tool_servers):
-    """Initialize chat routes with service dependencies.
-
-    Args:
-        llm: LLM service instance
-        mcp_url: Local MCP server URL
-        tool_servers: List of MCP tool server URLs
-    """
-    global llm_service, local_mcp_server_url, mcp_tool_servers
-    llm_service = llm
-    local_mcp_server_url = mcp_url
-    mcp_tool_servers = tool_servers
 
 
 def format_context(chunks: list[dict]) -> str:
@@ -74,6 +56,7 @@ def chat():
     Returns:
         JSON response with answer and sources
     """
+    config = get_config()
     logger.info("📨 Received chat request")
     try:
         # Get query from request
@@ -95,7 +78,7 @@ def chat():
             tool_params["collection"] = collection
 
         retrieved_chunks = run_async(
-            call_mcp_tool(local_mcp_server_url, "retrieve_document_chunks", tool_params)
+            call_mcp_tool(config.local_mcp_server_url, "retrieve_document_chunks", tool_params)
         )
         logger.info(f"✅ Retrieved {len(retrieved_chunks)} chunks")
 
@@ -121,7 +104,7 @@ def chat():
         # 4. Call LLM Service to generate response
         logger.info("🤖 Generating response from LLM...")
         llm_response = run_async(
-            llm_service.generate_response(messages, mcp_servers=mcp_tool_servers)
+            config.llm_service.generate_response(messages, mcp_servers=config.mcp_tool_servers)
         )
         logger.info("✅ Response generated")
 

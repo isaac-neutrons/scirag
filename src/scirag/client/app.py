@@ -15,9 +15,7 @@ from flask import Flask
 from scirag.client.routes import (
     chat_bp,
     health_bp,
-    init_chat_routes,
-    init_health_routes,
-    init_upload_routes,
+    init_config,
     pages_bp,
     upload_bp,
 )
@@ -81,10 +79,13 @@ def initialize_services():
         mcp_tool_servers = []
         logger.info("ℹ️ No MCP tool servers configured for LLM tool use")
 
-    # Initialize route dependencies
-    init_chat_routes(llm_service, local_mcp_server_url, mcp_tool_servers)
-    init_upload_routes(local_mcp_server_url, UPLOAD_FOLDER)
-    init_health_routes(llm_service, local_mcp_server_url, mcp_tool_servers)
+    # Initialize route configuration
+    init_config(
+        llm_service=llm_service,
+        local_mcp_server_url=local_mcp_server_url,
+        mcp_tool_servers=mcp_tool_servers,
+        upload_folder=UPLOAD_FOLDER,
+    )
 
 
 def create_app():

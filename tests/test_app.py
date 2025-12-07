@@ -1,11 +1,29 @@
 """Tests for the Flask application module."""
 
 import json
+from io import BytesIO
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from scirag.client.app import app
 from scirag.client.routes.chat import format_context
+from scirag.client.routes.config import RouteConfig
+
+
+@pytest.fixture
+def mock_config():
+    """Create a mock RouteConfig for testing."""
+    config = RouteConfig()
+    config.llm_service = MagicMock()
+    config.local_mcp_server_url = "http://localhost:8001"
+    config.mcp_tool_servers = []
+    config.upload_folder = Path("/tmp/test_upload")
+    config.allowed_extensions = {"pdf"}
+    # Ensure temp upload folder exists
+    config.upload_folder.mkdir(parents=True, exist_ok=True)
+    return config
 
 
 class TestFormatContext:
@@ -89,9 +107,10 @@ class TestChatEndpoint:
             assert "query" in data["error"]
 
     @patch("scirag.client.routes.chat.run_async")
-    def test_chat_retrieval_error_handling(self, mock_run_async):
+    @patch("scirag.client.routes.chat.get_config")
+    def test_chat_retrieval_error_handling(self, mock_get_config, mock_run_async, mock_config):
         """Test error handling when document retrieval fails."""
-        # Mock run_async to raise an error
+        mock_get_config.return_value = mock_config
         mock_run_async.side_effect = Exception("Retrieval failed")
 
         with app.test_client() as client:
@@ -105,10 +124,11 @@ class TestChatEndpoint:
             data = json.loads(response.data)
             assert "error" in data
 
-    @patch("scirag.client.routes.chat.llm_service")
     @patch("scirag.client.routes.chat.run_async")
-    def test_chat_llm_error_handling(self, mock_run_async, mock_llm_service):
+    @patch("scirag.client.routes.chat.get_config")
+    def test_chat_llm_error_handling(self, mock_get_config, mock_run_async, mock_config):
         """Test error handling when LLM call fails."""
+        mock_get_config.return_value = mock_config
         # First call returns chunks, second call (LLM) raises error
         mock_run_async.side_effect = [
             [],  # First call: retrieve_document_chunks returns empty list
@@ -167,8 +187,10 @@ class TestCollectionsEndpoint:
     """Tests for the /api/collections endpoint."""
 
     @patch("scirag.client.routes.upload.run_async")
-    def test_collections_returns_list(self, mock_run_async):
+    @patch("scirag.client.routes.upload.get_config")
+    def test_collections_returns_list(self, mock_get_config, mock_run_async, mock_config):
         """Test that collections endpoint returns list of collections."""
+        mock_get_config.return_value = mock_config
         mock_run_async.return_value = ["papers", "reports", "research"]
 
         with app.test_client() as client:
@@ -179,8 +201,10 @@ class TestCollectionsEndpoint:
             assert data["collections"] == ["papers", "reports", "research"]
 
     @patch("scirag.client.routes.upload.run_async")
-    def test_collections_returns_empty_list(self, mock_run_async):
+    @patch("scirag.client.routes.upload.get_config")
+    def test_collections_returns_empty_list(self, mock_get_config, mock_run_async, mock_config):
         """Test that collections endpoint returns empty list when no collections exist."""
+        mock_get_config.return_value = mock_config
         mock_run_async.return_value = []
 
         with app.test_client() as client:
@@ -215,16 +239,12 @@ class TestUploadEndpoint:
             data = json.loads(response.data)
             assert data["success"] is False
 
-    @patch("scirag.client.routes.upload.upload_folder", Path("/tmp/test_upload"))
     @patch("scirag.client.routes.upload.run_async")
     @patch("scirag.client.routes.upload.extract_chunks_from_pdf")
-    def test_upload_pdf_success(self, mock_extract, mock_run_async):
+    @patch("scirag.client.routes.upload.get_config")
+    def test_upload_pdf_success(self, mock_get_config, mock_extract, mock_run_async, mock_config):
         """Test successful PDF upload and ingestion."""
-        from io import BytesIO
-        import os
-        
-        # Ensure temp upload folder exists
-        os.makedirs("/tmp/test_upload", exist_ok=True)
+        mock_get_config.return_value = mock_config
 
         # Mock the extract function to return chunks (dicts, not objects)
         mock_chunks = [{"id": "test_chunk_0", "text": "test content"}]
@@ -255,9 +275,10 @@ class TestUploadEndpoint:
             assert len(result["details"]) == 1
             assert result["details"][0]["status"] == "success"
 
-    def test_upload_non_pdf_rejected(self):
+    @patch("scirag.client.routes.upload.get_config")
+    def test_upload_non_pdf_rejected(self, mock_get_config, mock_config):
         """Test that non-PDF files are rejected."""
-        from io import BytesIO
+        mock_get_config.return_value = mock_config
 
         with app.test_client() as client:
             data = {
@@ -276,16 +297,11 @@ class TestUploadEndpoint:
             assert result["success"] is False
             assert "not allowed" in result["details"][0]["error"]
 
-    @patch("scirag.client.routes.upload.upload_folder", Path("/tmp/test_upload"))
     @patch("scirag.client.routes.upload.extract_chunks_from_pdf")
-    def test_upload_handles_ingest_error(self, mock_extract):
+    @patch("scirag.client.routes.upload.get_config")
+    def test_upload_handles_ingest_error(self, mock_get_config, mock_extract, mock_config):
         """Test that ingest errors are handled gracefully."""
-        from io import BytesIO
-        import os
-        
-        # Ensure temp upload folder exists
-        os.makedirs("/tmp/test_upload", exist_ok=True)
-
+        mock_get_config.return_value = mock_config
         mock_extract.side_effect = Exception("Ingest failed")
 
         with app.test_client() as client:

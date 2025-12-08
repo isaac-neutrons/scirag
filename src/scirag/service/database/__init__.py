@@ -18,6 +18,7 @@ Usage:
 
 # Re-export public API
 from scirag.service.database.config import RavenDBConfig
+from scirag.service.database.models import DocumentChunk
 from scirag.service.database.operations import (
     count_documents,
     create_database,
@@ -34,6 +35,8 @@ from scirag.service.database.utils import cosine_similarity
 __all__ = [
     # Config
     "RavenDBConfig",
+    # Models
+    "DocumentChunk",
     # Operations
     "create_document_store",
     "ensure_index_exists",

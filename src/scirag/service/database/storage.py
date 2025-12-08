@@ -8,6 +8,7 @@ from ravendb import DocumentStore
 from scirag.constants import get_embedding_model
 from scirag.llm import get_llm_service
 from scirag.service.database.config import RavenDBConfig
+from scirag.service.database.models import DocumentChunk
 from scirag.service.database.operations import ensure_index_exists
 
 
@@ -69,16 +70,16 @@ def store_chunks_with_embeddings(
                 chunk_index = chunk.get("chunk_index", i)
                 doc_id = f"{source_filename}_chunk_{chunk_index}"
 
-                # Create document dict matching DocumentChunk structure
-                doc = {
-                    "id": doc_id,
-                    "source_filename": source_filename,
-                    "chunk_index": chunk_index,
-                    "text": chunk.get("text", ""),
-                    "embedding": embeddings[i],
-                    "metadata": chunk.get("metadata", {}),
-                    "collection": collection,
-                }
+                # Create DocumentChunk entity for RavenDB
+                doc = DocumentChunk(
+                    Id=doc_id,
+                    source_filename=source_filename,
+                    chunk_index=chunk_index,
+                    text=chunk.get("text", ""),
+                    embedding=embeddings[i],
+                    metadata=chunk.get("metadata", {}),
+                    collection=collection,
+                )
 
                 # Store the document
                 session.store(doc, doc_id)
